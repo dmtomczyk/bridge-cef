@@ -25,4 +25,9 @@ struct LoadState {
     std::string last_error;
 };
 
+struct BackendSnapshot {
+    PageState page;
+    LoadState load;
+};
+
 }  // namespace bridge::cef

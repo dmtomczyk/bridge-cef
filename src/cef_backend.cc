@@ -73,6 +73,16 @@ LoadState CefBackend::load_state() const {
     return load_state_;
 }
 
+BackendSnapshot CefBackend::snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return BackendSnapshot{page_state_, load_state_};
+}
+
+void CefBackend::set_observer(std::shared_ptr<IBackendObserver> observer) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    observer_ = std::move(observer);
+}
+
 std::string CefBackend::debug_summary() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::ostringstream out;
@@ -91,36 +101,84 @@ std::string CefBackend::debug_summary() const {
 }
 
 void CefBackend::observe_address_change(const std::string& url) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    page_state_.current_url = url;
+    std::shared_ptr<IBackendObserver> observer;
+    PageState page;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        page_state_.current_url = url;
+        observer = observer_;
+        page = page_state_;
+    }
+    if (observer) {
+        observer->on_page_state_changed(page);
+    }
 }
 
 void CefBackend::observe_title_change(const std::string& title) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    page_state_.title = title;
+    std::shared_ptr<IBackendObserver> observer;
+    PageState page;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        page_state_.title = title;
+        observer = observer_;
+        page = page_state_;
+    }
+    if (observer) {
+        observer->on_page_state_changed(page);
+    }
 }
 
 void CefBackend::observe_loading_state(bool loading, bool can_go_back, bool can_go_forward) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    load_state_.loading = loading;
-    page_state_.can_go_back = can_go_back;
-    page_state_.can_go_forward = can_go_forward;
-    if (loading) {
-        load_state_.last_error.clear();
+    std::shared_ptr<IBackendObserver> observer;
+    PageState page;
+    LoadState load;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        load_state_.loading = loading;
+        page_state_.can_go_back = can_go_back;
+        page_state_.can_go_forward = can_go_forward;
+        if (loading) {
+            load_state_.last_error.clear();
+        }
+        observer = observer_;
+        page = page_state_;
+        load = load_state_;
+    }
+    if (observer) {
+        observer->on_page_state_changed(page);
+        observer->on_load_state_changed(load);
     }
 }
 
 void CefBackend::observe_load_end() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    load_state_.loading = false;
-    load_state_.first_page_shown = true;
-    load_state_.last_error.clear();
+    std::shared_ptr<IBackendObserver> observer;
+    LoadState load;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        load_state_.loading = false;
+        load_state_.first_page_shown = true;
+        load_state_.last_error.clear();
+        observer = observer_;
+        load = load_state_;
+    }
+    if (observer) {
+        observer->on_load_state_changed(load);
+    }
 }
 
 void CefBackend::observe_load_error(const std::string& error) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    load_state_.loading = false;
-    load_state_.last_error = error;
+    std::shared_ptr<IBackendObserver> observer;
+    LoadState load;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        load_state_.loading = false;
+        load_state_.last_error = error;
+        observer = observer_;
+        load = load_state_;
+    }
+    if (observer) {
+        observer->on_load_state_changed(load);
+    }
 }
 
 }  // namespace bridge::cef

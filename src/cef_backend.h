@@ -8,6 +8,13 @@
 
 namespace bridge::cef {
 
+class IBackendObserver {
+public:
+    virtual ~IBackendObserver() = default;
+    virtual void on_page_state_changed(const PageState& state) = 0;
+    virtual void on_load_state_changed(const LoadState& state) = 0;
+};
+
 class IBackend {
 public:
     virtual ~IBackend() = default;
@@ -24,7 +31,10 @@ public:
 
     virtual PageState page_state() const = 0;
     virtual LoadState load_state() const = 0;
+    virtual BackendSnapshot snapshot() const = 0;
     virtual std::string debug_summary() const = 0;
+
+    virtual void set_observer(std::shared_ptr<IBackendObserver> observer) = 0;
 };
 
 class CefBackend final : public IBackend {
@@ -45,7 +55,10 @@ public:
 
     PageState page_state() const override;
     LoadState load_state() const override;
+    BackendSnapshot snapshot() const override;
     std::string debug_summary() const override;
+
+    void set_observer(std::shared_ptr<IBackendObserver> observer) override;
 
     // Browser-observed state hooks used by the current standalone proof and the
     // next shell-integration slices.
@@ -63,6 +76,7 @@ private:
     int width_ = 0;
     int height_ = 0;
     mutable std::mutex mutex_{};
+    std::shared_ptr<IBackendObserver> observer_{};
 };
 
 }  // namespace bridge::cef
