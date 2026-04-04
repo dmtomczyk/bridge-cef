@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+#include <mutex>
 #include <string>
 
 #include "cef_backend_types.h"
@@ -27,6 +29,8 @@ public:
 
 class CefBackend final : public IBackend {
 public:
+    using Ptr = std::shared_ptr<CefBackend>;
+
     CefBackend() = default;
 
     bool initialize(const InitParams& params, std::string* error_out = nullptr) override;
@@ -43,6 +47,14 @@ public:
     LoadState load_state() const override;
     std::string debug_summary() const override;
 
+    // Browser-observed state hooks used by the current standalone proof and the
+    // next shell-integration slices.
+    void observe_address_change(const std::string& url);
+    void observe_title_change(const std::string& title);
+    void observe_loading_state(bool loading, bool can_go_back, bool can_go_forward);
+    void observe_load_end();
+    void observe_load_error(const std::string& error);
+
 private:
     InitParams init_params_{};
     PageState page_state_{};
@@ -50,6 +62,7 @@ private:
     bool initialized_ = false;
     int width_ = 0;
     int height_ = 0;
+    mutable std::mutex mutex_{};
 };
 
 }  // namespace bridge::cef

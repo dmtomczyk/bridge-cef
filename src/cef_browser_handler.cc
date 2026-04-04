@@ -22,7 +22,9 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
 
 }  // namespace
 
-CefBrowserHandler::CefBrowserHandler(bool is_alloy_style) : is_alloy_style_(is_alloy_style) {
+CefBrowserHandler::CefBrowserHandler(bool is_alloy_style,
+                                     bridge::cef::CefBackend::Ptr backend)
+    : is_alloy_style_(is_alloy_style), backend_(std::move(backend)) {
     g_instance = this;
 }
 
@@ -34,8 +36,20 @@ CefBrowserHandler* CefBrowserHandler::GetInstance() {
     return g_instance;
 }
 
+void CefBrowserHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
+                                        CefRefPtr<CefFrame> frame,
+                                        const CefString& url) {
+    CEF_REQUIRE_UI_THREAD();
+    if (frame && frame->IsMain() && backend_) {
+        backend_->observe_address_change(url.ToString());
+    }
+}
+
 void CefBrowserHandler::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) {
     CEF_REQUIRE_UI_THREAD();
+    if (backend_) {
+        backend_->observe_title_change(title.ToString());
+    }
     if (auto browser_view = CefBrowserView::GetForBrowser(browser)) {
         if (auto window = browser_view->GetWindow()) {
             window->SetTitle(title);
@@ -71,13 +85,38 @@ void CefBrowserHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
     }
 }
 
+void CefBrowserHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
+                                             bool isLoading,
+                                             bool canGoBack,
+                                             bool canGoForward) {
+    CEF_REQUIRE_UI_THREAD();
+    if (backend_) {
+        backend_->observe_loading_state(isLoading, canGoBack, canGoForward);
+    }
+}
+
+void CefBrowserHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
+                                  CefRefPtr<CefFrame> frame,
+                                  int httpStatusCode) {
+    CEF_REQUIRE_UI_THREAD();
+    if (frame && frame->IsMain() && backend_) {
+        backend_->observe_load_end();
+    }
+}
+
 void CefBrowserHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
                                CefRefPtr<CefFrame> frame,
                                ErrorCode errorCode,
                                const CefString& errorText,
                                const CefString& failedUrl) {
     CEF_REQUIRE_UI_THREAD();
-    if (!is_alloy_style_ || errorCode == ERR_ABORTED) {
+    if (errorCode == ERR_ABORTED) {
+        return;
+    }
+    if (backend_ && frame && frame->IsMain()) {
+        backend_->observe_load_error(errorText.ToString());
+    }
+    if (!is_alloy_style_) {
         return;
     }
 

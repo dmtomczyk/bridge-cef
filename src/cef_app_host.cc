@@ -89,13 +89,20 @@ void CefAppHost::OnContextInitialized() {
     const cef_runtime_style_t runtime_style =
         use_alloy_style ? CEF_RUNTIME_STYLE_ALLOY : CEF_RUNTIME_STYLE_DEFAULT;
 
-    CefRefPtr<CefBrowserHandler> handler(new CefBrowserHandler(use_alloy_style));
     CefBrowserSettings browser_settings;
 
     std::string url = command_line->GetSwitchValue("url");
     if (url.empty()) {
         url = "https://example.com";
     }
+
+    bridge::cef::InitParams params;
+    params.initial_url = url;
+    params.use_alloy_style = use_alloy_style;
+    std::string init_error;
+    backend_->initialize(params, &init_error);
+
+    CefRefPtr<CefBrowserHandler> handler(new CefBrowserHandler(use_alloy_style, backend_));
 
     const bool use_views = !command_line->HasSwitch("use-native");
     if (use_views) {
