@@ -15,7 +15,10 @@ add_library(engine_cef_core STATIC
   src/cef_integration_bridge.h
 )
 target_compile_features(engine_cef_core PUBLIC cxx_std_20)
-target_include_directories(engine_cef_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(engine_cef_core PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 
 if(ENGINE_CEF_ENABLE_CEF)
   if(NOT DEFINED CEF_ROOT AND DEFINED ENV{CEF_ROOT})

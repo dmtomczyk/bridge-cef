@@ -2,6 +2,10 @@
 
 namespace bridge::cef {
 
+std::shared_ptr<IIntegrationBridge> create_integration_bridge() {
+    return std::make_shared<CefIntegrationBridge>();
+}
+
 CefIntegrationBridge::CefIntegrationBridge()
     : backend_(std::make_shared<CefBackend>()) {}
 
@@ -57,14 +61,37 @@ std::string CefIntegrationBridge::debug_summary() const {
     return backend_->debug_summary();
 }
 
-void CefIntegrationBridge::on_page_state_changed(const PageState& state) {
+void CefIntegrationBridge::set_observer(std::shared_ptr<IIntegrationBridgeObserver> observer) {
     std::lock_guard<std::mutex> lock(mutex_);
-    snapshot_cache_.page = state;
+    bridge_observer_ = std::move(observer);
+}
+
+void CefIntegrationBridge::on_page_state_changed(const PageState& state) {
+    std::shared_ptr<IIntegrationBridgeObserver> observer;
+    BackendSnapshot snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_cache_.page = state;
+        snapshot = snapshot_cache_;
+        observer = bridge_observer_;
+    }
+    if (observer) {
+        observer->on_snapshot_changed(snapshot);
+    }
 }
 
 void CefIntegrationBridge::on_load_state_changed(const LoadState& state) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    snapshot_cache_.load = state;
+    std::shared_ptr<IIntegrationBridgeObserver> observer;
+    BackendSnapshot snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_cache_.load = state;
+        snapshot = snapshot_cache_;
+        observer = bridge_observer_;
+    }
+    if (observer) {
+        observer->on_snapshot_changed(snapshot);
+    }
 }
 
 void CefIntegrationBridge::attach_observer() {

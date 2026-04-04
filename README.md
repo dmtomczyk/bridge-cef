@@ -20,6 +20,7 @@ See:
 - `docs/bootstrap-decision.md`
 - `docs/cef-distribution-bootstrap.md`
 - `docs/client-integration-bridge.md`
+- `docs/cross-repo-contract-v1.md`
 
 ## Dependency model
 

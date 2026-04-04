@@ -5,10 +5,12 @@
 #include <string>
 
 #include "cef_backend.h"
+#include "engine_cef/integration_bridge.h"
 
 namespace bridge::cef {
 
 class CefIntegrationBridge final : public IBackendObserver,
+                                   public IIntegrationBridge,
                                    public std::enable_shared_from_this<CefIntegrationBridge> {
 public:
     using Ptr = std::shared_ptr<CefIntegrationBridge>;
@@ -26,8 +28,10 @@ public:
     void resize(int width, int height);
     void tick();
 
-    BackendSnapshot snapshot() const;
-    std::string debug_summary() const;
+    BackendSnapshot snapshot() const override;
+    std::string debug_summary() const override;
+
+    void set_observer(std::shared_ptr<IIntegrationBridgeObserver> observer) override;
 
     CefBackend::Ptr backend() const { return backend_; }
 
@@ -40,6 +44,7 @@ private:
     CefBackend::Ptr backend_;
     mutable std::mutex mutex_{};
     BackendSnapshot snapshot_cache_{};
+    std::shared_ptr<IIntegrationBridgeObserver> bridge_observer_{};
 };
 
 }  // namespace bridge::cef
