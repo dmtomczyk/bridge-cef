@@ -33,3 +33,14 @@ or similar.
 ## Near-term goal
 
 Get from the first native proof to a stable backend module that can be integrated into the Bridge shell deliberately, without reintroducing the screenshot/PNG architecture from the old reference backend.
+
+## Current code shape
+
+`engine-cef` now has two layers:
+
+- `engine_cef_proof` — the standalone native CEF proof app used for bring-up
+- `engine_cef_core` — the beginning of the shell-facing backend core/contract
+
+See:
+- `docs/initial-backend-contract.md`
+- `docs/migration-slices.md`

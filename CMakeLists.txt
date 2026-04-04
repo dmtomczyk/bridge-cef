@@ -7,6 +7,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ENGINE_CEF_ENABLE_CEF "Build against a local CEF binary distribution" OFF)
 
+add_library(engine_cef_core STATIC
+  src/cef_backend.cc
+  src/cef_backend.h
+  src/cef_backend_types.h
+)
+target_compile_features(engine_cef_core PUBLIC cxx_std_20)
+target_include_directories(engine_cef_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 if(ENGINE_CEF_ENABLE_CEF)
   if(NOT DEFINED CEF_ROOT AND DEFINED ENV{CEF_ROOT})
     set(CEF_ROOT "$ENV{CEF_ROOT}")
@@ -36,7 +44,7 @@ if(ENGINE_CEF_ENABLE_CEF)
   )
   set_executable_target_properties(engine_cef_proof)
   add_dependencies(engine_cef_proof libcef_dll_wrapper)
-  target_link_libraries(engine_cef_proof libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+  target_link_libraries(engine_cef_proof engine_cef_core libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
   set_target_properties(engine_cef_proof PROPERTIES
     INSTALL_RPATH "$ORIGIN"
     BUILD_WITH_INSTALL_RPATH TRUE
@@ -53,4 +61,5 @@ else()
   message(STATUS "engine-cef scaffold only. Reconfigure with -DENGINE_CEF_ENABLE_CEF=ON once a CEF distribution is available.")
   add_executable(engine_cef_proof src/main_stub.cpp)
   target_compile_features(engine_cef_proof PRIVATE cxx_std_20)
+  target_link_libraries(engine_cef_proof engine_cef_core)
 endif()
