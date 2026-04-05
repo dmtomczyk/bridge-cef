@@ -216,6 +216,12 @@ void CefBrowserHandler::OnPaint(CefRefPtr<CefBrowser> browser,
                             width,
                             height,
                             width * static_cast<int>(sizeof(std::uint32_t)));
+    if (osr_host_) {
+        osr_host_->PresentFrame(static_cast<const std::uint32_t*>(buffer),
+                                width,
+                                height,
+                                width * static_cast<int>(sizeof(std::uint32_t)));
+    }
     if (!saw_first_frame_) {
         LOG(WARNING) << "engine-cef osr first frame " << width << "x" << height;
     }
