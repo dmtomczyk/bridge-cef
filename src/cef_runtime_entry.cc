@@ -2,8 +2,21 @@
 
 #include "include/cef_app.h"
 
+void CefRuntimeHost::EnsureApp() const {
+    if (!app_) {
+        app_ = new CefAppHost;
+    }
+}
+
+std::shared_ptr<bridge::cef::IIntegrationBridge> CefRuntimeHost::bridge() const {
+    EnsureApp();
+    return app_->bridge();
+}
+
 int CefRuntimeHost::Run(int argc, char* argv[]) const {
-    return RunCefRuntimeEntry(argc, argv, config_);
+    EnsureApp();
+    app_->set_launch_config(config_.launch);
+    return CefLinuxMainRunner::Run(argc, argv, app_, config_.runner);
 }
 
 void CefRuntimeHost::RequestQuit() {
@@ -11,7 +24,5 @@ void CefRuntimeHost::RequestQuit() {
 }
 
 int RunCefRuntimeEntry(int argc, char* argv[], const CefRuntimeEntryConfig& config) {
-    CefRefPtr<CefAppHost> app(new CefAppHost);
-    app->set_launch_config(config.launch);
-    return CefLinuxMainRunner::Run(argc, argv, app, config.runner);
+    return CefRuntimeHost(config).Run(argc, argv);
 }

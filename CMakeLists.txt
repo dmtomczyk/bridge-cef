@@ -64,7 +64,10 @@ if(ENGINE_CEF_ENABLE_CEF)
   )
   target_compile_features(engine_cef_runtime_host PUBLIC cxx_std_20)
   target_link_libraries(engine_cef_runtime_host PUBLIC engine_cef_core libcef_lib libcef_dll_wrapper PkgConfig::GTK3 ${CEF_STANDARD_LIBS})
-  target_include_directories(engine_cef_runtime_host PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_include_directories(engine_cef_runtime_host PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CEF_INCLUDE_PATH}
+  )
 
   add_executable(engine_cef_proof
     src/main_linux.cc

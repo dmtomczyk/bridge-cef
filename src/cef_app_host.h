@@ -1,11 +1,21 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "cef_backend.h"
 #include "cef_integration_bridge.h"
 #include "cef_osr_host_gtk.h"
 #include "include/cef_app.h"
+
+struct CefLaunchConfig {
+    std::string initial_url = "https://example.com";
+    bool use_osr = false;
+    bool use_alloy_style = true;
+    bool use_native = false;
+    bool quit_after_first_frame = false;
+    bool verify_presentation_v2 = false;
+};
 
 class CefAppHost : public CefApp, public CefBrowserProcessHandler {
 public:
@@ -28,6 +38,7 @@ public:
     std::shared_ptr<bridge::cef::IIntegrationBridge> bridge() const { return bridge_; }
 
 private:
+    CefLaunchConfig launch_config_{};
     bridge::cef::CefIntegrationBridge::Ptr bridge_ = std::make_shared<bridge::cef::CefIntegrationBridge>();
     std::unique_ptr<CefOsrHostGtk> osr_host_{};
     bool context_initialized_ = false;
