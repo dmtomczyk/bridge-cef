@@ -11,6 +11,16 @@
 #include <gtk/gtk.h>
 #endif
 
+namespace {
+
+constexpr int kTopStripHeight = 48;
+constexpr double kChromeBgR = 0.08;
+constexpr double kChromeBgG = 0.10;
+constexpr double kChromeBgB = 0.14;
+constexpr double kChromeBorder = 0.22;
+
+}  // namespace
+
 CefOsrHostGtk::CefOsrHostGtk() = default;
 
 CefOsrHostGtk::~CefOsrHostGtk() {
@@ -258,6 +268,7 @@ int CefOsrHostGtk::DeferredResizeIdle(void* user_data) {
 int CefOsrHostGtk::Draw(cairo_t* cr) {
     const int draw_width = std::max(1, gtk_widget_get_allocated_width(drawing_area_));
     const int draw_height = std::max(1, gtk_widget_get_allocated_height(drawing_area_));
+    const int content_height = std::max(1, draw_height - kTopStripHeight);
 
     cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
     cairo_paint(cr);
@@ -271,9 +282,10 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
             frame_stride_bytes_);
 
         cairo_save(cr);
+        cairo_translate(cr, 0.0, static_cast<double>(kTopStripHeight));
         cairo_scale(cr,
                     static_cast<double>(draw_width) / static_cast<double>(frame_width_),
-                    static_cast<double>(draw_height) / static_cast<double>(frame_height_));
+                    static_cast<double>(content_height) / static_cast<double>(frame_height_));
         cairo_set_source_surface(cr, surface, 0, 0);
         cairo_paint(cr);
         cairo_restore(cr);
@@ -281,18 +293,64 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     }
 
     cairo_save(cr);
-    cairo_set_source_rgba(cr, 0.07, 0.10, 0.14, 0.78);
-    cairo_rectangle(cr, 10.0, 10.0, 118.0, 30.0);
+    cairo_set_source_rgb(cr, kChromeBgR, kChromeBgG, kChromeBgB);
+    cairo_rectangle(cr, 0.0, 0.0, draw_width, kTopStripHeight);
     cairo_fill(cr);
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.12);
+    cairo_rectangle(cr, 0.0, static_cast<double>(kTopStripHeight - 1), draw_width, 1.0);
+    cairo_fill(cr);
+
     if (brand_overlay_pixbuf_ != nullptr) {
-        gdk_cairo_set_source_pixbuf(cr, brand_overlay_pixbuf_, 16.0, 16.0);
+        gdk_cairo_set_source_pixbuf(cr, brand_overlay_pixbuf_, 12.0, 15.0);
         cairo_paint(cr);
     }
     cairo_set_source_rgb(cr, 0.95, 0.98, 1.0);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, 14.0);
-    cairo_move_to(cr, 40.0, 31.0);
+    cairo_move_to(cr, 38.0, 31.0);
     cairo_show_text(cr, "BRIDGE");
+
+    auto draw_button = [&](double x, double y, double w, double h, const char* label) {
+        cairo_set_source_rgba(cr, 0.16, 0.20, 0.27, 0.98);
+        cairo_rectangle(cr, x, y, w, h);
+        cairo_fill(cr);
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.12);
+        cairo_rectangle(cr, x, y, w, h);
+        cairo_stroke(cr);
+        cairo_set_source_rgb(cr, 0.95, 0.98, 1.0);
+        cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, 13.0);
+        cairo_move_to(cr, x + 12.0, y + 18.0);
+        cairo_show_text(cr, label);
+    };
+
+    draw_button(112.0, 11.0, 30.0, 26.0, "<");
+    draw_button(148.0, 11.0, 30.0, 26.0, ">");
+    draw_button(184.0, 11.0, 42.0, 26.0, "R");
+
+    const double address_x = 238.0;
+    const double address_y = 10.0;
+    const double address_w = std::max(160.0, static_cast<double>(draw_width) - 334.0);
+    const double address_h = 28.0;
+    cairo_set_source_rgba(cr, 0.11, 0.14, 0.19, 0.98);
+    cairo_rectangle(cr, address_x, address_y, address_w, address_h);
+    cairo_fill(cr);
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.16);
+    cairo_rectangle(cr, address_x, address_y, address_w, address_h);
+    cairo_stroke(cr);
+    cairo_set_source_rgba(cr, 0.82, 0.87, 0.93, 0.72);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 12.0);
+    cairo_move_to(cr, address_x + 12.0, address_y + 18.0);
+    cairo_show_text(cr, "Address field");
+
+    draw_button(address_x + address_w + 10.0, 11.0, 40.0, 26.0, "Go");
+
+    cairo_set_source_rgba(cr, 0.80, 0.85, 0.92, 0.78);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 11.0);
+    cairo_move_to(cr, 14.0, 44.0);
+    cairo_show_text(cr, "Official runtime-host browser");
     cairo_restore(cr);
     return 0;
 }
@@ -313,11 +371,12 @@ bool CefOsrHostGtk::SyncViewSizeFromAllocation(bool notify_browser, int fallback
 
     view_width = std::max(1, view_width);
     view_height = std::max(1, view_height);
-    const bool changed = (browser_view_width_ != view_width) || (browser_view_height_ != view_height);
+    const int browser_height = std::max(1, view_height - kTopStripHeight);
+    const bool changed = (browser_view_width_ != view_width) || (browser_view_height_ != browser_height);
     width_ = view_width;
     height_ = view_height;
     browser_view_width_ = view_width;
-    browser_view_height_ = view_height;
+    browser_view_height_ = browser_height;
 
     if (changed && notify_browser && browser_ != nullptr) {
         browser_->GetHost()->NotifyScreenInfoChanged();
@@ -373,12 +432,17 @@ int CefOsrHostGtk::HandleButton(GdkEventButton* event, bool mouse_up) {
     if (browser_ == nullptr || event == nullptr) {
         return 0;
     }
+    const int x = static_cast<int>(event->x);
+    const int y = static_cast<int>(event->y);
+    if (y < kTopStripHeight) {
+        return 1;
+    }
     gtk_widget_grab_focus(drawing_area_);
     browser_->GetHost()->SetFocus(true);
 
     CefMouseEvent mouse_event;
-    mouse_event.x = static_cast<int>(event->x);
-    mouse_event.y = static_cast<int>(event->y);
+    mouse_event.x = x;
+    mouse_event.y = y - kTopStripHeight;
     mouse_event.modifiers = CurrentModifiers();
     if (!mouse_up) {
         switch (event->button) {
@@ -410,9 +474,14 @@ int CefOsrHostGtk::HandleMotion(GdkEventMotion* event, bool mouse_leave) {
     if (browser_ == nullptr || event == nullptr) {
         return 0;
     }
+    const int x = static_cast<int>(event->x);
+    const int y = static_cast<int>(event->y);
+    if (!mouse_leave && y < kTopStripHeight) {
+        return 1;
+    }
     CefMouseEvent mouse_event;
-    mouse_event.x = static_cast<int>(event->x);
-    mouse_event.y = static_cast<int>(event->y);
+    mouse_event.x = x;
+    mouse_event.y = std::max(0, y - kTopStripHeight);
     mouse_event.modifiers = CurrentModifiers();
     browser_->GetHost()->SendMouseMoveEvent(mouse_event, mouse_leave);
     return 1;
@@ -422,9 +491,14 @@ int CefOsrHostGtk::HandleScroll(GdkEventScroll* event) {
     if (browser_ == nullptr || event == nullptr) {
         return 0;
     }
+    const int x = static_cast<int>(event->x);
+    const int y = static_cast<int>(event->y);
+    if (y < kTopStripHeight) {
+        return 1;
+    }
     CefMouseEvent mouse_event;
-    mouse_event.x = static_cast<int>(event->x);
-    mouse_event.y = static_cast<int>(event->y);
+    mouse_event.x = x;
+    mouse_event.y = y - kTopStripHeight;
     mouse_event.modifiers = CurrentModifiers();
 
     int delta_x = 0;
@@ -490,12 +564,13 @@ bool CefOsrHostGtk::GetRootScreenRect(CefRect& rect) const {
 }
 
 void CefOsrHostGtk::GetViewRect(CefRect& rect) const {
-    rect = CefRect(0, 0, width_, height_);
+    rect = CefRect(0, 0, browser_view_width_ > 0 ? browser_view_width_ : width_,
+                   browser_view_height_ > 0 ? browser_view_height_ : std::max(1, height_ - kTopStripHeight));
 }
 
 bool CefOsrHostGtk::GetScreenPoint(int view_x, int view_y, int& screen_x, int& screen_y) const {
     screen_x = view_x;
-    screen_y = view_y;
+    screen_y = view_y + kTopStripHeight;
     return true;
 }
 
