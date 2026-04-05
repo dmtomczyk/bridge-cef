@@ -46,3 +46,9 @@ This v1 contract does **not** settle:
 ## Current role
 
 This contract is the first deliberately stable handshake between the `client` repo and the `engine-cef` repo.
+
+## Follow-on note
+
+The next seam after this v1 control/state bridge is described in:
+
+- `docs/presentation-seam-v2.md`
