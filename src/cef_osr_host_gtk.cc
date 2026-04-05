@@ -5,6 +5,7 @@
 #include "include/base/cef_logging.h"
 
 #if defined(CEF_X11)
+#include <X11/Xutil.h>
 #include <gdk/gdkkeysyms.h>
 #include <gdk/gdkx.h>
 #include <gtk/gtk.h>
@@ -14,6 +15,14 @@ CefOsrHostGtk::CefOsrHostGtk() = default;
 
 CefOsrHostGtk::~CefOsrHostGtk() {
 #if defined(CEF_X11)
+    if (brand_overlay_pixbuf_ != nullptr) {
+        g_object_unref(brand_overlay_pixbuf_);
+        brand_overlay_pixbuf_ = nullptr;
+    }
+    if (brand_icon_pixbuf_ != nullptr) {
+        g_object_unref(brand_icon_pixbuf_);
+        brand_icon_pixbuf_ = nullptr;
+    }
     if (window_ != nullptr) {
         gtk_widget_destroy(window_);
         window_ = nullptr;
@@ -28,6 +37,26 @@ bool CefOsrHostGtk::Initialize() {
         return true;
     }
 
+    g_set_prgname("bridge");
+    g_set_application_name("BRIDGE");
+    gdk_set_program_class("BRIDGE");
+#if defined(ENGINE_CEF_BRIDGE_ICON_PNG_PATH)
+    {
+        GError* icon_error = nullptr;
+        brand_icon_pixbuf_ = gdk_pixbuf_new_from_file(ENGINE_CEF_BRIDGE_ICON_PNG_PATH, &icon_error);
+        if (icon_error != nullptr) {
+            LOG(WARNING) << "CefOsrHostGtk: failed to load app icon: " << icon_error->message;
+            g_error_free(icon_error);
+            icon_error = nullptr;
+        }
+        if (brand_icon_pixbuf_ != nullptr) {
+            brand_overlay_pixbuf_ = gdk_pixbuf_scale_simple(brand_icon_pixbuf_, 18, 18, GDK_INTERP_BILINEAR);
+            gtk_window_set_default_icon(brand_icon_pixbuf_);
+            gtk_window_set_default_icon_name("bridge");
+        }
+    }
+#endif
+
     window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     if (window_ == nullptr) {
         LOG(ERROR) << "CefOsrHostGtk: gtk_window_new returned null";
@@ -40,8 +69,9 @@ bool CefOsrHostGtk::Initialize() {
         return false;
     }
 
-    gtk_widget_set_size_request(drawing_area_, width_, height_);
     gtk_widget_set_can_focus(drawing_area_, TRUE);
+    gtk_widget_set_hexpand(drawing_area_, TRUE);
+    gtk_widget_set_vexpand(drawing_area_, TRUE);
     gtk_widget_add_events(drawing_area_,
                           GDK_BUTTON_PRESS_MASK |
                               GDK_BUTTON_RELEASE_MASK |
@@ -63,7 +93,11 @@ bool CefOsrHostGtk::Initialize() {
     g_signal_connect(window_, "configure-event", G_CALLBACK(CefOsrHostGtk::ConfigureCallback), this);
 
     gtk_window_set_default_size(GTK_WINDOW(window_), width_, height_);
-    gtk_window_set_title(GTK_WINDOW(window_), "engine-cef-osr-host");
+    gtk_window_set_title(GTK_WINDOW(window_), "BRIDGE — CEF Runtime Host");
+    gtk_window_set_icon_name(GTK_WINDOW(window_), "bridge");
+    if (brand_icon_pixbuf_ != nullptr) {
+        gtk_window_set_icon(GTK_WINDOW(window_), brand_icon_pixbuf_);
+    }
     gtk_window_set_decorated(GTK_WINDOW(window_), TRUE);
     gtk_window_set_resizable(GTK_WINDOW(window_), TRUE);
     gtk_widget_show_all(window_);
@@ -87,6 +121,12 @@ bool CefOsrHostGtk::Initialize() {
         LOG(ERROR) << "CefOsrHostGtk: GDK_WINDOW_XID returned 0";
         return false;
     }
+
+    XClassHint class_hint;
+    class_hint.res_name = const_cast<char*>("bridge");
+    class_hint.res_class = const_cast<char*>("BRIDGE");
+    XSetClassHint(GDK_WINDOW_XDISPLAY(gdk_window), GDK_WINDOW_XID(gdk_window), &class_hint);
+
     LOG(WARNING) << "CefOsrHostGtk: initialized X11 host handle=" << parent_handle_;
     return true;
 #else
@@ -100,9 +140,9 @@ bool CefOsrHostGtk::PresentFrame(const std::uint32_t* argb, int width, int heigh
         return false;
     }
 
-    width_ = width;
-    height_ = height;
-    stride_bytes_ = width * static_cast<int>(sizeof(std::uint32_t));
+    frame_width_ = width;
+    frame_height_ = height;
+    frame_stride_bytes_ = width * static_cast<int>(sizeof(std::uint32_t));
     frame_argb_.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
     const int stride_pixels = std::max(1, stride_bytes / static_cast<int>(sizeof(std::uint32_t)));
     for (int y = 0; y < height; ++y) {
@@ -197,21 +237,44 @@ int CefOsrHostGtk::ConfigureCallback(GtkWidget* widget, GdkEventConfigure* event
 }
 
 int CefOsrHostGtk::Draw(cairo_t* cr) {
-    if (frame_argb_.empty() || width_ <= 0 || height_ <= 0 || stride_bytes_ <= 0) {
-        cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    const int draw_width = std::max(1, gtk_widget_get_allocated_width(drawing_area_));
+    const int draw_height = std::max(1, gtk_widget_get_allocated_height(drawing_area_));
+
+    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    cairo_paint(cr);
+
+    if (!frame_argb_.empty() && frame_width_ > 0 && frame_height_ > 0 && frame_stride_bytes_ > 0) {
+        cairo_surface_t* surface = cairo_image_surface_create_for_data(
+            reinterpret_cast<unsigned char*>(frame_argb_.data()),
+            CAIRO_FORMAT_ARGB32,
+            frame_width_,
+            frame_height_,
+            frame_stride_bytes_);
+
+        cairo_save(cr);
+        cairo_scale(cr,
+                    static_cast<double>(draw_width) / static_cast<double>(frame_width_),
+                    static_cast<double>(draw_height) / static_cast<double>(frame_height_));
+        cairo_set_source_surface(cr, surface, 0, 0);
         cairo_paint(cr);
-        return 0;
+        cairo_restore(cr);
+        cairo_surface_destroy(surface);
     }
 
-    cairo_surface_t* surface = cairo_image_surface_create_for_data(
-        reinterpret_cast<unsigned char*>(frame_argb_.data()),
-        CAIRO_FORMAT_ARGB32,
-        width_,
-        height_,
-        stride_bytes_);
-    cairo_set_source_surface(cr, surface, 0, 0);
-    cairo_paint(cr);
-    cairo_surface_destroy(surface);
+    cairo_save(cr);
+    cairo_set_source_rgba(cr, 0.07, 0.10, 0.14, 0.78);
+    cairo_rectangle(cr, 10.0, 10.0, 118.0, 30.0);
+    cairo_fill(cr);
+    if (brand_overlay_pixbuf_ != nullptr) {
+        gdk_cairo_set_source_pixbuf(cr, brand_overlay_pixbuf_, 16.0, 16.0);
+        cairo_paint(cr);
+    }
+    cairo_set_source_rgb(cr, 0.95, 0.98, 1.0);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 14.0);
+    cairo_move_to(cr, 40.0, 31.0);
+    cairo_show_text(cr, "BRIDGE");
+    cairo_restore(cr);
     return 0;
 }
 
@@ -402,4 +465,20 @@ void CefOsrHostGtk::NotifyBrowserCreated(CefRefPtr<CefBrowser> browser) {
     browser->GetHost()->WasHidden(false);
     browser->GetHost()->SetFocus(true);
     browser->GetHost()->WasResized();
+}
+
+void CefOsrHostGtk::SetWindowTitle(const std::string& title) {
+    window_title_ = title;
+#if defined(CEF_X11)
+    if (window_ == nullptr) {
+        return;
+    }
+    const std::string effective = title.empty() ? "BRIDGE — CEF Runtime Host" : title + " — BRIDGE";
+    gtk_window_set_title(GTK_WINDOW(window_), effective.c_str());
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#else
+    (void)title;
+#endif
 }

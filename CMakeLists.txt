@@ -68,6 +68,9 @@ if(ENGINE_CEF_ENABLE_CEF)
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CEF_INCLUDE_PATH}
   )
+  target_compile_definitions(engine_cef_runtime_host PUBLIC
+    ENGINE_CEF_BRIDGE_ICON_PNG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../client/assets/bridge.png"
+  )
 
   add_executable(engine_cef_runtime_host_bridge_observer_test tests/runtime_host_bridge_observer_test.cpp)
   target_compile_features(engine_cef_runtime_host_bridge_observer_test PRIVATE cxx_std_20)

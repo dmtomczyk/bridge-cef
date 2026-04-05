@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "include/cef_client.h"
@@ -14,6 +15,7 @@ typedef struct _GdkEventScroll GdkEventScroll;
 typedef struct _GdkEventKey GdkEventKey;
 typedef struct _GdkEventCrossing GdkEventCrossing;
 typedef struct _GdkEventConfigure GdkEventConfigure;
+typedef struct _GdkPixbuf GdkPixbuf;
 #endif
 
 class CefOsrHostGtk {
@@ -23,6 +25,7 @@ public:
 
     bool Initialize();
     bool PresentFrame(const std::uint32_t* argb, int width, int height, int stride_bytes);
+    void SetWindowTitle(const std::string& title);
 
     CefWindowHandle parent_handle() const { return parent_handle_; }
 
@@ -55,12 +58,17 @@ private:
 
     int width_ = 1280;
     int height_ = 800;
-    int stride_bytes_ = 0;
+    int frame_width_ = 0;
+    int frame_height_ = 0;
+    int frame_stride_bytes_ = 0;
     std::vector<std::uint32_t> frame_argb_{};
     CefWindowHandle parent_handle_ = 0;
 #if defined(CEF_X11)
     GtkWidget* window_ = nullptr;
     GtkWidget* drawing_area_ = nullptr;
+    GdkPixbuf* brand_icon_pixbuf_ = nullptr;
+    GdkPixbuf* brand_overlay_pixbuf_ = nullptr;
 #endif
+    std::string window_title_{};
     CefRefPtr<CefBrowser> browser_{};
 };

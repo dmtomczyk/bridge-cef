@@ -65,6 +65,8 @@ void CefBrowserHandler::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefSt
         if (auto window = browser_view->GetWindow()) {
             window->SetTitle(title);
         }
+    } else if (osr_host_) {
+        osr_host_->SetWindowTitle(title.ToString());
     } else if (is_alloy_style_) {
         PlatformTitleChange(browser, title);
     }
