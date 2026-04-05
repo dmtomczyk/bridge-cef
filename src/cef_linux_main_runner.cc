@@ -35,7 +35,7 @@ int XIOErrorHandlerImpl(Display* display) {
 
 }  // namespace
 
-int CefLinuxMainRunner::Run(int argc, char* argv[], CefRefPtr<CefAppHost> app) {
+int CefLinuxMainRunner::Run(int argc, char* argv[], CefRefPtr<CefAppHost> app, const CefLinuxMainRunnerOptions& options) {
     CefMainArgs main_args(argc, argv);
 
     const int exit_code = CefExecuteProcess(main_args, app.get(), nullptr);
@@ -50,21 +50,25 @@ int CefLinuxMainRunner::Run(int argc, char* argv[], CefRefPtr<CefAppHost> app) {
 #if !defined(CEF_USE_SANDBOX)
     settings.no_sandbox = true;
 #endif
-    const std::filesystem::path root_cache =
-        std::filesystem::path("/tmp") /
-        (std::string("bridge-engine-cef-proof-cache-") + std::to_string(::getpid()));
+    const std::filesystem::path root_cache = options.cache_root.empty()
+                                                 ? (std::filesystem::path("/tmp") /
+                                                    (std::string("bridge-engine-cef-proof-cache-") +
+                                                     std::to_string(::getpid())))
+                                                 : std::filesystem::path(options.cache_root);
     std::filesystem::create_directories(root_cache);
     CefString(&settings.root_cache_path) = root_cache.string();
     CefString(&settings.cache_path) = root_cache.string();
-    if (command_line->HasSwitch("use-osr")) {
+    if (options.use_osr) {
         settings.windowless_rendering_enabled = true;
     }
 
 #if defined(CEF_X11)
-    if (command_line->HasSwitch("use-osr")) {
+    if (options.use_osr) {
         gtk_disable_setlocale();
-        setenv("GDK_BACKEND", "x11", 1);
-        gdk_set_allowed_backends("x11");
+        if (options.force_x11_backend_for_osr) {
+            setenv("GDK_BACKEND", "x11", 1);
+            gdk_set_allowed_backends("x11");
+        }
         gtk_init(&argc, &argv);
     }
     XSetErrorHandler(XErrorHandlerImpl);

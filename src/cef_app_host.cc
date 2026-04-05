@@ -137,9 +137,8 @@ void CefAppHost::CreateInitialBrowser() {
         return;
     }
 
-    auto command_line = CefCommandLine::GetGlobalCommandLine();
-    const bool use_alloy_style = !command_line->HasSwitch("disable-alloy-style");
-    const bool use_osr = command_line->HasSwitch("use-osr");
+    const bool use_alloy_style = launch_config_.use_alloy_style;
+    const bool use_osr = launch_config_.use_osr;
     const cef_runtime_style_t runtime_style =
         use_alloy_style ? CEF_RUNTIME_STYLE_ALLOY : CEF_RUNTIME_STYLE_DEFAULT;
 
@@ -148,10 +147,7 @@ void CefAppHost::CreateInitialBrowser() {
         browser_settings.windowless_frame_rate = 30;
     }
 
-    std::string url = command_line->GetSwitchValue("url");
-    if (url.empty()) {
-        url = "https://example.com";
-    }
+    const std::string& url = launch_config_.initial_url;
 
     bridge::cef::InitParams params;
     params.initial_url = url;
@@ -169,10 +165,15 @@ void CefAppHost::CreateInitialBrowser() {
         }
     }
 
-    CefRefPtr<CefBrowserHandler> handler(
-        new CefBrowserHandler(use_alloy_style, use_osr, bridge_->backend(), bridge_, osr_host_.get()));
+    CefRefPtr<CefBrowserHandler> handler(new CefBrowserHandler(use_alloy_style,
+                                                                use_osr,
+                                                                launch_config_.quit_after_first_frame,
+                                                                launch_config_.verify_presentation_v2,
+                                                                bridge_->backend(),
+                                                                bridge_,
+                                                                osr_host_.get()));
 
-    const bool use_views = !command_line->HasSwitch("use-native");
+    const bool use_views = !launch_config_.use_native;
     if (use_osr) {
         CefWindowInfo window_info;
         window_info.SetAsWindowless(osr_host_->parent_handle());

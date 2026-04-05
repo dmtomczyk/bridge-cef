@@ -24,13 +24,15 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
 
 CefBrowserHandler::CefBrowserHandler(bool is_alloy_style,
                                      bool use_osr,
+                                     bool quit_after_first_frame,
+                                     bool verify_presentation_v2,
                                      bridge::cef::CefBackend::Ptr backend,
                                      std::shared_ptr<bridge::cef::IIntegrationBridge> bridge,
                                      CefOsrHostGtk* osr_host)
     : is_alloy_style_(is_alloy_style),
       use_osr_(use_osr),
-      quit_after_first_frame_(CefCommandLine::GetGlobalCommandLine()->HasSwitch("quit-after-first-frame")),
-      verify_presentation_v2_(CefCommandLine::GetGlobalCommandLine()->HasSwitch("verify-presentation-v2")),
+      quit_after_first_frame_(quit_after_first_frame),
+      verify_presentation_v2_(verify_presentation_v2),
       backend_(std::move(backend)),
       bridge_(std::move(bridge)),
       osr_host_(osr_host) {

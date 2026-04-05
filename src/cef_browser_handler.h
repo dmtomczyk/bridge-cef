@@ -16,6 +16,8 @@ class CefBrowserHandler : public CefClient,
 public:
     CefBrowserHandler(bool is_alloy_style,
                       bool use_osr,
+                      bool quit_after_first_frame,
+                      bool verify_presentation_v2,
                       bridge::cef::CefBackend::Ptr backend,
                       std::shared_ptr<bridge::cef::IIntegrationBridge> bridge = nullptr,
                       CefOsrHostGtk* osr_host = nullptr);

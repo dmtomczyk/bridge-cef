@@ -21,6 +21,9 @@ public:
 
     void CreateInitialBrowser();
 
+    void set_launch_config(const CefLaunchConfig& config) { launch_config_ = config; }
+    const CefLaunchConfig& launch_config() const { return launch_config_; }
+
     bridge::cef::CefBackend::Ptr backend() const { return bridge_->backend(); }
     std::shared_ptr<bridge::cef::IIntegrationBridge> bridge() const { return bridge_; }
 

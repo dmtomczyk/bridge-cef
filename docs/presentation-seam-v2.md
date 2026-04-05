@@ -150,6 +150,8 @@ There is now also a cheap regression guard for this contract in `tests/bridge_fr
 
 The working Linux proof bootstrap for that path is no longer trapped inside the proof executable; it now lives in a reusable `engine_cef_runtime_host` layer that the proof links against.
 
+That runtime host is also now configured through explicit launch/runtime structs instead of relying only on proof-local global command-line parsing, which makes it a more realistic future handoff seam for non-proof callers.
+
 Important caveat:
 
 - upstream `cefclient` OSR still crashes in this environment
