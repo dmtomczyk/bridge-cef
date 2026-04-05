@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -29,6 +30,12 @@ public:
     void tick();
 
     BackendSnapshot snapshot() const override;
+    PresentationState presentation_state() const override;
+    bool copy_latest_frame(std::uint32_t* dst_argb,
+                           int width,
+                           int height,
+                           int stride_bytes,
+                           std::string* error_out = nullptr) const override;
     std::string debug_summary() const override;
 
     void set_observer(std::shared_ptr<IIntegrationBridgeObserver> observer) override;

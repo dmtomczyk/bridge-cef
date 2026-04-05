@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace bridge::cef {
@@ -25,9 +26,18 @@ struct LoadState {
     std::string last_error;
 };
 
+struct PresentationState {
+    bool has_frame = false;
+    int width = 0;
+    int height = 0;
+    int stride_bytes = 0;
+    std::uint64_t frame_generation = 0;
+};
+
 struct BackendSnapshot {
     PageState page;
     LoadState load;
+    PresentationState presentation;
 };
 
 }  // namespace bridge::cef

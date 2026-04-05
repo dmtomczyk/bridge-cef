@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -28,6 +29,12 @@ public:
     virtual void tick() = 0;
 
     virtual BackendSnapshot snapshot() const = 0;
+    virtual PresentationState presentation_state() const = 0;
+    virtual bool copy_latest_frame(std::uint32_t* dst_argb,
+                                   int width,
+                                   int height,
+                                   int stride_bytes,
+                                   std::string* error_out = nullptr) const = 0;
     virtual std::string debug_summary() const = 0;
 
     virtual void set_observer(std::shared_ptr<IIntegrationBridgeObserver> observer) = 0;

@@ -57,6 +57,18 @@ BackendSnapshot CefIntegrationBridge::snapshot() const {
     return snapshot_cache_;
 }
 
+PresentationState CefIntegrationBridge::presentation_state() const {
+    return backend_->presentation_state();
+}
+
+bool CefIntegrationBridge::copy_latest_frame(std::uint32_t* dst_argb,
+                                             int width,
+                                             int height,
+                                             int stride_bytes,
+                                             std::string* error_out) const {
+    return backend_->copy_latest_frame(dst_argb, width, height, stride_bytes, error_out);
+}
+
 std::string CefIntegrationBridge::debug_summary() const {
     return backend_->debug_summary();
 }

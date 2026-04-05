@@ -1,5 +1,6 @@
 #include "cef_backend.h"
 
+#include <algorithm>
 #include <sstream>
 
 namespace bridge::cef {
@@ -16,6 +17,8 @@ bool CefBackend::initialize(const InitParams& params, std::string* error_out) {
     load_state_.loading = false;
     load_state_.first_page_shown = false;
     load_state_.last_error.clear();
+    presentation_state_ = PresentationState{};
+    latest_frame_argb_.clear();
     initialized_ = true;
     if (error_out) {
         error_out->clear();
@@ -28,6 +31,8 @@ void CefBackend::shutdown() {
     initialized_ = false;
     page_state_ = PageState{};
     load_state_ = LoadState{};
+    presentation_state_ = PresentationState{};
+    latest_frame_argb_.clear();
 }
 
 void CefBackend::navigate(const std::string& url) {
@@ -57,6 +62,11 @@ void CefBackend::resize(int width, int height) {
     std::lock_guard<std::mutex> lock(mutex_);
     width_ = width;
     height_ = height;
+    if (presentation_state_.has_frame) {
+        presentation_state_.width = width;
+        presentation_state_.height = height;
+        presentation_state_.stride_bytes = width * static_cast<int>(sizeof(std::uint32_t));
+    }
 }
 
 void CefBackend::tick() {
@@ -75,7 +85,43 @@ LoadState CefBackend::load_state() const {
 
 BackendSnapshot CefBackend::snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return BackendSnapshot{page_state_, load_state_};
+    return BackendSnapshot{page_state_, load_state_, presentation_state_};
+}
+
+PresentationState CefBackend::presentation_state() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return presentation_state_;
+}
+
+bool CefBackend::copy_latest_frame(std::uint32_t* dst_argb,
+                                   int width,
+                                   int height,
+                                   int stride_bytes,
+                                   std::string* error_out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!presentation_state_.has_frame || latest_frame_argb_.empty()) {
+        if (error_out) {
+            *error_out = "engine-cef presentation v2 frame source not available yet";
+        }
+        return false;
+    }
+    if (dst_argb == nullptr || width != presentation_state_.width || height != presentation_state_.height ||
+        stride_bytes != presentation_state_.stride_bytes) {
+        if (error_out) {
+            *error_out = "copy_latest_frame target shape mismatch";
+        }
+        return false;
+    }
+    const int stride_pixels = std::max(1, stride_bytes / static_cast<int>(sizeof(std::uint32_t)));
+    for (int y = 0; y < height; ++y) {
+        const auto* src_row = latest_frame_argb_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width);
+        auto* dst_row = dst_argb + static_cast<std::size_t>(y) * static_cast<std::size_t>(stride_pixels);
+        std::copy_n(src_row, width, dst_row);
+    }
+    if (error_out) {
+        error_out->clear();
+    }
+    return true;
 }
 
 void CefBackend::set_observer(std::shared_ptr<IBackendObserver> observer) {
@@ -93,7 +139,9 @@ std::string CefBackend::debug_summary() const {
         << " loading=" << (load_state_.loading ? 1 : 0)
         << " first_page_shown=" << (load_state_.first_page_shown ? 1 : 0)
         << " can_go_back=" << (page_state_.can_go_back ? 1 : 0)
-        << " can_go_forward=" << (page_state_.can_go_forward ? 1 : 0);
+        << " can_go_forward=" << (page_state_.can_go_forward ? 1 : 0)
+        << " has_frame=" << (presentation_state_.has_frame ? 1 : 0)
+        << " frame_generation=" << presentation_state_.frame_generation;
     if (!load_state_.last_error.empty()) {
         out << " error=" << load_state_.last_error;
     }

@@ -113,6 +113,21 @@ A copy-first API is a good v2 step because it:
 
 In other words, the **ownership boundary** matters now more than transport optimization does.
 
+## Initial implementation status
+
+The first v2 slice has now started:
+
+- `engine-cef` public headers expose `PresentationState`
+- the bridge exposes `presentation_state()` and `copy_latest_frame(...)`
+- the `client` CEF adapter prefers the engine-owned frame path when it is available
+
+Current limitation:
+
+- the backend still reports `has_frame=false`
+- `copy_latest_frame(...)` truthfully returns an explanatory error until a real CEF frame producer lands
+
+So the **contract and client preference path now exist**, but the actual content-frame producer is still the next implementation step.
+
 ## Recommended migration order after this note
 
 1. Add a minimal presentation v2 surface to `engine-cef` public headers

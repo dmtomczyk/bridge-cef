@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "cef_backend_types.h"
 
@@ -32,6 +34,12 @@ public:
     virtual PageState page_state() const = 0;
     virtual LoadState load_state() const = 0;
     virtual BackendSnapshot snapshot() const = 0;
+    virtual PresentationState presentation_state() const = 0;
+    virtual bool copy_latest_frame(std::uint32_t* dst_argb,
+                                   int width,
+                                   int height,
+                                   int stride_bytes,
+                                   std::string* error_out = nullptr) const = 0;
     virtual std::string debug_summary() const = 0;
 
     virtual void set_observer(std::shared_ptr<IBackendObserver> observer) = 0;
@@ -56,6 +64,12 @@ public:
     PageState page_state() const override;
     LoadState load_state() const override;
     BackendSnapshot snapshot() const override;
+    PresentationState presentation_state() const override;
+    bool copy_latest_frame(std::uint32_t* dst_argb,
+                           int width,
+                           int height,
+                           int stride_bytes,
+                           std::string* error_out = nullptr) const override;
     std::string debug_summary() const override;
 
     void set_observer(std::shared_ptr<IBackendObserver> observer) override;
@@ -72,6 +86,8 @@ private:
     InitParams init_params_{};
     PageState page_state_{};
     LoadState load_state_{};
+    PresentationState presentation_state_{};
+    std::vector<std::uint32_t> latest_frame_argb_{};
     bool initialized_ = false;
     int width_ = 0;
     int height_ = 0;
