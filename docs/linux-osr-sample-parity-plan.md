@@ -60,6 +60,7 @@ With the current sample-parity slice in place, the `engine-cef` proof can now re
 This does **not** mean Linux OSR is fully solved in general. Upstream `cefclient` OSR still crashes in this environment, so the current result should be read as:
 
 - our proof path now has a viable first-frame recipe
+- that proof path can also verify successful presentation-v2 frame copy on first paint
 - upstream/Linux OSR remains fragile in this environment family
 - the sample-parity work was still worth doing because it separated proof-host issues from broader upstream runtime issues
 

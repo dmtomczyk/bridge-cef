@@ -142,6 +142,8 @@ The short plan for making the proof more faithful to upstream Linux OSR hosting 
 
 That sample-parity work has now produced a proof breakthrough: the Linux proof can reach first observed `OnPaint` and exit cleanly when run through the GTK/X11-backed OSR host path with X11-forced GTK backend selection.
 
+That proof-side verification step now also works: the proof can confirm on first OSR paint that the presentation v2 surface is populated (`has_frame=true` in practice) and that `copy_latest_frame(...)` succeeds for the delivered frame.
+
 Important caveat:
 
 - upstream `cefclient` OSR still crashes in this environment

@@ -59,9 +59,9 @@ int main(int argc, char* argv[]) {
 
 #if defined(CEF_X11)
     if (command_line->HasSwitch("use-osr")) {
+        gtk_disable_setlocale();
         setenv("GDK_BACKEND", "x11", 1);
         gdk_set_allowed_backends("x11");
-        gtk_disable_setlocale();
         gtk_init(&argc, &argv);
     }
     XSetErrorHandler(XErrorHandlerImpl);
