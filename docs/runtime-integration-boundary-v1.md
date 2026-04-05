@@ -87,6 +87,8 @@ The first non-proof join point should be:
 
 That is enough to test the runtime seam honestly without pretending we already have a complete embedding architecture.
 
+In the client repo, this should continue to be treated as a staging/runtime-host lane distinct from the long-term `renderer=cef` shell/backend destination lane.
+
 ## What we are explicitly *not* doing yet
 
 - no new stable public runtime API under `include/engine_cef/` yet
