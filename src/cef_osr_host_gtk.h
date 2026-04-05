@@ -62,6 +62,10 @@ private:
     uint32_t CurrentModifiers() const;
     bool SyncViewSizeFromAllocation(bool notify_browser, int fallback_width = 0, int fallback_height = 0);
     void QueueDeferredResizeSync();
+    bool HandleChromeClick(int x, int y);
+    void FocusAddressField();
+    void BlurAddressField();
+    bool NavigateAddressBuffer();
 #endif
 
     int width_ = 1280;
@@ -81,11 +85,14 @@ private:
 #endif
     std::string window_title_{};
     std::string current_url_{};
+    std::string address_edit_buffer_{};
     std::string load_error_text_{};
     std::string failed_url_{};
     bool is_loading_ = false;
     bool can_go_back_ = false;
     bool can_go_forward_ = false;
+    bool address_focused_ = false;
+    bool address_replace_on_type_ = false;
     bool deferred_resize_pending_ = false;
     CefRefPtr<CefBrowser> browser_{};
 };

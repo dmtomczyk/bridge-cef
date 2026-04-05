@@ -1,6 +1,7 @@
 #include "cef_osr_host_gtk.h"
 
 #include <algorithm>
+#include <cctype>
 
 #include "include/base/cef_logging.h"
 
@@ -18,6 +19,40 @@ constexpr double kChromeBgR = 0.08;
 constexpr double kChromeBgG = 0.10;
 constexpr double kChromeBgB = 0.14;
 constexpr double kChromeBorder = 0.22;
+constexpr double kBackButtonX = 112.0;
+constexpr double kForwardButtonX = 148.0;
+constexpr double kReloadButtonX = 184.0;
+constexpr double kButtonY = 11.0;
+constexpr double kButtonHeight = 26.0;
+constexpr double kSmallButtonWidth = 30.0;
+constexpr double kReloadButtonWidth = 42.0;
+constexpr double kAddressX = 238.0;
+constexpr double kAddressY = 10.0;
+constexpr double kAddressHeight = 28.0;
+constexpr double kGoButtonWidth = 40.0;
+
+struct Rect {
+    double x;
+    double y;
+    double w;
+    double h;
+};
+
+bool Contains(const Rect& rect, int x, int y) {
+    return x >= rect.x && y >= rect.y && x < (rect.x + rect.w) && y < (rect.y + rect.h);
+}
+
+Rect BackButtonRect() { return {kBackButtonX, kButtonY, kSmallButtonWidth, kButtonHeight}; }
+Rect ForwardButtonRect() { return {kForwardButtonX, kButtonY, kSmallButtonWidth, kButtonHeight}; }
+Rect ReloadButtonRect() { return {kReloadButtonX, kButtonY, kReloadButtonWidth, kButtonHeight}; }
+Rect AddressRect(int draw_width) {
+    const double address_w = std::max(160.0, static_cast<double>(draw_width) - 414.0);
+    return {kAddressX, kAddressY, address_w, kAddressHeight};
+}
+Rect GoButtonRect(int draw_width) {
+    const Rect address = AddressRect(draw_width);
+    return {address.x + address.w + 10.0, 11.0, kGoButtonWidth, 26.0};
+}
 
 std::string EllipsizeMiddle(const std::string& text, std::size_t max_chars) {
     if (text.size() <= max_chars || max_chars < 8) {
@@ -26,6 +61,28 @@ std::string EllipsizeMiddle(const std::string& text, std::size_t max_chars) {
     const std::size_t left = (max_chars - 3) / 2;
     const std::size_t right = max_chars - 3 - left;
     return text.substr(0, left) + "..." + text.substr(text.size() - right);
+}
+
+std::string TrimAscii(std::string text) {
+    auto not_space = [](unsigned char c) { return !std::isspace(c); };
+    text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
+    text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
+    return text;
+}
+
+std::string NormalizeTypedUrl(const std::string& raw) {
+    std::string text = TrimAscii(raw);
+    if (text.empty()) {
+        return text;
+    }
+    if (text.rfind("http://", 0) == 0 || text.rfind("https://", 0) == 0 || text.rfind("file://", 0) == 0 ||
+        text.rfind("about:", 0) == 0 || text.rfind("data:", 0) == 0) {
+        return text;
+    }
+    if (text.find("://") != std::string::npos) {
+        return text;
+    }
+    return std::string("https://") + text;
 }
 
 }  // namespace
@@ -319,46 +376,74 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     cairo_move_to(cr, 38.0, 31.0);
     cairo_show_text(cr, "BRIDGE");
 
-    auto draw_button = [&](double x, double y, double w, double h, const char* label, bool enabled) {
+    auto draw_button = [&](const Rect& rect, const char* label, bool enabled) {
         cairo_set_source_rgba(cr, enabled ? 0.16 : 0.11, enabled ? 0.20 : 0.14, enabled ? 0.27 : 0.18, 0.98);
-        cairo_rectangle(cr, x, y, w, h);
+        cairo_rectangle(cr, rect.x, rect.y, rect.w, rect.h);
         cairo_fill(cr);
         cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, kChromeBorder);
-        cairo_rectangle(cr, x, y, w, h);
+        cairo_rectangle(cr, rect.x, rect.y, rect.w, rect.h);
         cairo_stroke(cr);
         cairo_set_source_rgba(cr, 0.95, 0.98, 1.0, enabled ? 1.0 : 0.45);
         cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
         cairo_set_font_size(cr, 13.0);
-        cairo_move_to(cr, x + 12.0, y + 18.0);
+        cairo_move_to(cr, rect.x + 12.0, rect.y + 18.0);
         cairo_show_text(cr, label);
     };
 
-    draw_button(112.0, 11.0, 30.0, 26.0, "<", can_go_back_);
-    draw_button(148.0, 11.0, 30.0, 26.0, ">", can_go_forward_);
-    draw_button(184.0, 11.0, 42.0, 26.0, "R", true);
+    draw_button(BackButtonRect(), "<", can_go_back_);
+    draw_button(ForwardButtonRect(), ">", can_go_forward_);
+    draw_button(ReloadButtonRect(), "R", true);
 
-    const double address_x = 238.0;
-    const double address_y = 10.0;
-    const double address_w = std::max(160.0, static_cast<double>(draw_width) - 414.0);
-    const double address_h = 28.0;
+    const Rect address_rect = AddressRect(draw_width);
+    const Rect go_rect = GoButtonRect(draw_width);
+    const double address_x = address_rect.x;
+    const double address_y = address_rect.y;
+    const double address_w = address_rect.w;
+    const double address_h = address_rect.h;
     cairo_set_source_rgba(cr, 0.11, 0.14, 0.19, 0.98);
     cairo_rectangle(cr, address_x, address_y, address_w, address_h);
     cairo_fill(cr);
-    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.16);
+    cairo_set_source_rgba(cr,
+                          address_focused_ ? 0.46 : 1.0,
+                          address_focused_ ? 0.72 : 1.0,
+                          address_focused_ ? 1.0 : 1.0,
+                          address_focused_ ? 0.82 : 0.16);
     cairo_rectangle(cr, address_x, address_y, address_w, address_h);
     cairo_stroke(cr);
-    cairo_set_source_rgba(cr, 0.93, 0.97, 1.0, 0.92);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 12.0);
-    const std::string address_text = current_url_.empty() ? std::string("Address field") : EllipsizeMiddle(current_url_, 90);
+    const std::string address_text = address_focused_
+                                         ? address_edit_buffer_
+                                         : (current_url_.empty() ? std::string("Address field") : EllipsizeMiddle(current_url_, 90));
     cairo_save(cr);
     cairo_rectangle(cr, address_x + 8.0, address_y + 4.0, address_w - 16.0, address_h - 8.0);
     cairo_clip(cr);
+    cairo_text_extents_t extents{};
+    cairo_text_extents(cr, address_text.c_str(), &extents);
+    if (address_focused_ && address_replace_on_type_ && !address_text.empty()) {
+        const double highlight_x = address_x + 10.0;
+        const double highlight_y = address_y + 6.0;
+        const double highlight_w = std::min(address_w - 20.0, extents.x_advance + 8.0);
+        const double highlight_h = address_h - 12.0;
+        cairo_set_source_rgba(cr, 0.34, 0.59, 1.0, 0.88);
+        cairo_rectangle(cr, highlight_x, highlight_y, highlight_w, highlight_h);
+        cairo_fill(cr);
+        cairo_set_source_rgb(cr, 0.07, 0.10, 0.14);
+    } else {
+        cairo_set_source_rgba(cr, 0.93, 0.97, 1.0, 0.92);
+    }
     cairo_move_to(cr, address_x + 12.0, address_y + 18.0);
     cairo_show_text(cr, address_text.c_str());
+    if (address_focused_ && !address_replace_on_type_) {
+        const double caret_x = std::min(address_x + address_w - 10.0, address_x + 12.0 + extents.x_advance + 1.0);
+        cairo_set_source_rgba(cr, 0.92, 0.97, 1.0, 0.92);
+        cairo_move_to(cr, caret_x, address_y + 7.0);
+        cairo_line_to(cr, caret_x, address_y + address_h - 7.0);
+        cairo_stroke(cr);
+    }
     cairo_restore(cr);
 
-    draw_button(address_x + address_w + 10.0, 11.0, 40.0, 26.0, "Go", true);
+    draw_button(go_rect, "Go", true);
 
     const char* status_label = "Ready";
     double status_r = 0.36;
@@ -431,6 +516,93 @@ void CefOsrHostGtk::QueueDeferredResizeSync() {
     g_idle_add(&CefOsrHostGtk::DeferredResizeIdle, this);
 }
 
+void CefOsrHostGtk::FocusAddressField() {
+    address_focused_ = true;
+    address_edit_buffer_ = current_url_;
+    address_replace_on_type_ = true;
+#if defined(CEF_X11)
+    if (drawing_area_ != nullptr) {
+        gtk_widget_grab_focus(drawing_area_);
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
+void CefOsrHostGtk::BlurAddressField() {
+    address_focused_ = false;
+    address_replace_on_type_ = false;
+    address_edit_buffer_ = current_url_;
+#if defined(CEF_X11)
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
+bool CefOsrHostGtk::NavigateAddressBuffer() {
+    if (browser_ == nullptr) {
+        return false;
+    }
+    const std::string normalized = NormalizeTypedUrl(address_focused_ ? address_edit_buffer_ : current_url_);
+    if (normalized.empty()) {
+        return false;
+    }
+    current_url_ = normalized;
+    address_edit_buffer_ = normalized;
+    address_focused_ = false;
+    address_replace_on_type_ = false;
+    load_error_text_.clear();
+    failed_url_.clear();
+    if (auto frame = browser_->GetMainFrame()) {
+        frame->LoadURL(normalized);
+    }
+#if defined(CEF_X11)
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+    browser_->GetHost()->SetFocus(true);
+    return true;
+}
+
+bool CefOsrHostGtk::HandleChromeClick(int x, int y) {
+    const int draw_width = drawing_area_ != nullptr ? std::max(1, gtk_widget_get_allocated_width(drawing_area_)) : width_;
+    if (Contains(BackButtonRect(), x, y)) {
+        if (can_go_back_ && browser_ != nullptr) {
+            BlurAddressField();
+            browser_->GoBack();
+        }
+        return true;
+    }
+    if (Contains(ForwardButtonRect(), x, y)) {
+        if (can_go_forward_ && browser_ != nullptr) {
+            BlurAddressField();
+            browser_->GoForward();
+        }
+        return true;
+    }
+    if (Contains(ReloadButtonRect(), x, y)) {
+        BlurAddressField();
+        if (browser_ != nullptr) {
+            browser_->Reload();
+        }
+        return true;
+    }
+    if (Contains(AddressRect(draw_width), x, y)) {
+        FocusAddressField();
+        return true;
+    }
+    if (Contains(GoButtonRect(draw_width), x, y)) {
+        if (!address_focused_) {
+            FocusAddressField();
+        }
+        NavigateAddressBuffer();
+        return true;
+    }
+    BlurAddressField();
+    return true;
+}
+
 uint32_t CefOsrHostGtk::CurrentModifiers() const {
     if (drawing_area_ == nullptr) {
         return EVENTFLAG_NONE;
@@ -473,7 +645,13 @@ int CefOsrHostGtk::HandleButton(GdkEventButton* event, bool mouse_up) {
     const int x = static_cast<int>(event->x);
     const int y = static_cast<int>(event->y);
     if (y < kTopStripHeight) {
+        if (mouse_up) {
+            return HandleChromeClick(x, y) ? 1 : 1;
+        }
         return 1;
+    }
+    if (address_focused_) {
+        BlurAddressField();
     }
     gtk_widget_grab_focus(drawing_area_);
     browser_->GetHost()->SetFocus(true);
@@ -566,23 +744,83 @@ int CefOsrHostGtk::HandleKey(GdkEventKey* event, bool key_up) {
         return 0;
     }
 
+    const bool control_down = (event->state & GDK_CONTROL_MASK) != 0;
+    const bool alt_down = (event->state & GDK_MOD1_MASK) != 0;
+    const gunichar unicode = gdk_keyval_to_unicode(event->keyval);
+
+    if (!key_up && control_down && !alt_down && (event->keyval == GDK_KEY_l || event->keyval == GDK_KEY_L)) {
+        FocusAddressField();
+        return 1;
+    }
+
+    if (address_focused_) {
+        if (key_up) {
+            return 1;
+        }
+        switch (event->keyval) {
+            case GDK_KEY_Escape:
+                BlurAddressField();
+                return 1;
+            case GDK_KEY_Return:
+            case GDK_KEY_KP_Enter:
+                NavigateAddressBuffer();
+                return 1;
+            case GDK_KEY_BackSpace:
+                if (address_replace_on_type_) {
+                    address_edit_buffer_.clear();
+                    address_replace_on_type_ = false;
+                } else if (!address_edit_buffer_.empty()) {
+                    address_edit_buffer_.pop_back();
+                }
+                if (drawing_area_ != nullptr) {
+                    gtk_widget_queue_draw(drawing_area_);
+                }
+                return 1;
+            case GDK_KEY_Delete:
+                address_edit_buffer_.clear();
+                address_replace_on_type_ = false;
+                if (drawing_area_ != nullptr) {
+                    gtk_widget_queue_draw(drawing_area_);
+                }
+                return 1;
+            default:
+                break;
+        }
+        if (!control_down && !alt_down && unicode >= 32) {
+            char utf8_char[8] = {0};
+            const int utf8_len = g_unichar_to_utf8(unicode, utf8_char);
+            std::string text(utf8_char, utf8_len);
+            if (address_replace_on_type_) {
+                address_edit_buffer_ = text;
+                address_replace_on_type_ = false;
+            } else {
+                address_edit_buffer_ += text;
+            }
+            if (drawing_area_ != nullptr) {
+                gtk_widget_queue_draw(drawing_area_);
+            }
+            return 1;
+        }
+        return 1;
+    }
+
     CefKeyEvent key_event;
     key_event.size = sizeof(CefKeyEvent);
     key_event.type = key_up ? KEYEVENT_KEYUP : KEYEVENT_RAWKEYDOWN;
     key_event.windows_key_code = static_cast<int>(event->keyval);
     key_event.native_key_code = static_cast<int>(event->hardware_keycode);
     key_event.is_system_key = 0;
-    key_event.character = static_cast<char16_t>(gdk_keyval_to_unicode(event->keyval));
+    key_event.character = static_cast<char16_t>(unicode);
     key_event.unmodified_character = key_event.character;
     key_event.focus_on_editable_field = 1;
     key_event.modifiers = CurrentModifiers();
     if ((event->state & GDK_SHIFT_MASK) != 0) {
         key_event.modifiers |= EVENTFLAG_SHIFT_DOWN;
     }
-    if ((event->state & GDK_CONTROL_MASK) != 0) {
+    if (control_down) {
         key_event.modifiers |= EVENTFLAG_CONTROL_DOWN;
     }
-    if ((event->state & GDK_MOD1_MASK) != 0) {
+    if (alt_down) {
         key_event.modifiers |= EVENTFLAG_ALT_DOWN;
     }
     browser_->GetHost()->SendKeyEvent(key_event);
@@ -640,6 +878,9 @@ void CefOsrHostGtk::NotifyBrowserCreated(CefRefPtr<CefBrowser> browser) {
 
 void CefOsrHostGtk::SetCurrentUrl(const std::string& url) {
     current_url_ = url;
+    if (!address_focused_) {
+        address_edit_buffer_ = current_url_;
+    }
 #if defined(CEF_X11)
     if (drawing_area_ != nullptr) {
         gtk_widget_queue_draw(drawing_area_);
