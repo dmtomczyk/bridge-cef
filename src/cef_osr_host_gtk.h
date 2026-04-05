@@ -48,12 +48,17 @@ private:
     static int LeaveNotifyCallback(GtkWidget* widget, GdkEventCrossing* event, void* user_data);
     static int DeleteEventCallback(GtkWidget* widget, void* event, void* user_data);
     static int ConfigureCallback(GtkWidget* widget, GdkEventConfigure* event, void* user_data);
+    static void SizeAllocateCallback(GtkWidget* widget, void* allocation, void* user_data);
+    static int MapEventCallback(GtkWidget* widget, void* event, void* user_data);
+    static int DeferredResizeIdle(void* user_data);
     int Draw(cairo_t* cr);
     int HandleButton(GdkEventButton* event, bool mouse_up);
     int HandleMotion(GdkEventMotion* event, bool mouse_leave);
     int HandleScroll(GdkEventScroll* event);
     int HandleKey(GdkEventKey* event, bool key_up);
     uint32_t CurrentModifiers() const;
+    bool SyncViewSizeFromAllocation(bool notify_browser, int fallback_width = 0, int fallback_height = 0);
+    void QueueDeferredResizeSync();
 #endif
 
     int width_ = 1280;
@@ -61,6 +66,8 @@ private:
     int frame_width_ = 0;
     int frame_height_ = 0;
     int frame_stride_bytes_ = 0;
+    int browser_view_width_ = 0;
+    int browser_view_height_ = 0;
     std::vector<std::uint32_t> frame_argb_{};
     CefWindowHandle parent_handle_ = 0;
 #if defined(CEF_X11)
@@ -70,5 +77,6 @@ private:
     GdkPixbuf* brand_overlay_pixbuf_ = nullptr;
 #endif
     std::string window_title_{};
+    bool deferred_resize_pending_ = false;
     CefRefPtr<CefBrowser> browser_{};
 };

@@ -89,8 +89,10 @@ bool CefOsrHostGtk::Initialize() {
     g_signal_connect(drawing_area_, "key-press-event", G_CALLBACK(CefOsrHostGtk::KeyPressCallback), this);
     g_signal_connect(drawing_area_, "key-release-event", G_CALLBACK(CefOsrHostGtk::KeyReleaseCallback), this);
     g_signal_connect(drawing_area_, "leave-notify-event", G_CALLBACK(CefOsrHostGtk::LeaveNotifyCallback), this);
+    g_signal_connect(drawing_area_, "size-allocate", G_CALLBACK(CefOsrHostGtk::SizeAllocateCallback), this);
     g_signal_connect(window_, "delete-event", G_CALLBACK(CefOsrHostGtk::DeleteEventCallback), this);
     g_signal_connect(window_, "configure-event", G_CALLBACK(CefOsrHostGtk::ConfigureCallback), this);
+    g_signal_connect(window_, "map-event", G_CALLBACK(CefOsrHostGtk::MapEventCallback), this);
 
     gtk_window_set_default_size(GTK_WINDOW(window_), width_, height_);
     gtk_window_set_title(GTK_WINDOW(window_), "BRIDGE — CEF Runtime Host");
@@ -105,6 +107,7 @@ bool CefOsrHostGtk::Initialize() {
     while (gtk_events_pending()) {
         gtk_main_iteration();
     }
+    SyncViewSizeFromAllocation(false, width_, height_);
 
     GdkWindow* gdk_window = gtk_widget_get_window(window_);
     if (gdk_window == nullptr) {
@@ -224,15 +227,31 @@ int CefOsrHostGtk::DeleteEventCallback(GtkWidget* widget, void* event, void* use
 int CefOsrHostGtk::ConfigureCallback(GtkWidget* widget, GdkEventConfigure* event, void* user_data) {
     (void)widget;
     auto* self = static_cast<CefOsrHostGtk*>(user_data);
-    if (event == nullptr) {
-        return 0;
-    }
-    self->width_ = std::max(1, event->width);
-    self->height_ = std::max(1, event->height);
-    if (self->browser_ != nullptr) {
-        self->browser_->GetHost()->NotifyScreenInfoChanged();
-        self->browser_->GetHost()->WasResized();
-    }
+    const int fallback_width = event != nullptr ? event->width : 0;
+    const int fallback_height = event != nullptr ? event->height : 0;
+    self->SyncViewSizeFromAllocation(true, fallback_width, fallback_height);
+    return 0;
+}
+
+void CefOsrHostGtk::SizeAllocateCallback(GtkWidget* widget, void* allocation, void* user_data) {
+    (void)widget;
+    (void)allocation;
+    auto* self = static_cast<CefOsrHostGtk*>(user_data);
+    self->SyncViewSizeFromAllocation(self->browser_ != nullptr, self->width_, self->height_);
+}
+
+int CefOsrHostGtk::MapEventCallback(GtkWidget* widget, void* event, void* user_data) {
+    (void)widget;
+    (void)event;
+    auto* self = static_cast<CefOsrHostGtk*>(user_data);
+    self->QueueDeferredResizeSync();
+    return 0;
+}
+
+int CefOsrHostGtk::DeferredResizeIdle(void* user_data) {
+    auto* self = static_cast<CefOsrHostGtk*>(user_data);
+    self->deferred_resize_pending_ = false;
+    self->SyncViewSizeFromAllocation(true, self->width_, self->height_);
     return 0;
 }
 
@@ -276,6 +295,43 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     cairo_show_text(cr, "BRIDGE");
     cairo_restore(cr);
     return 0;
+}
+
+bool CefOsrHostGtk::SyncViewSizeFromAllocation(bool notify_browser, int fallback_width, int fallback_height) {
+    int view_width = fallback_width;
+    int view_height = fallback_height;
+    if (drawing_area_ != nullptr) {
+        const int allocated_width = gtk_widget_get_allocated_width(drawing_area_);
+        const int allocated_height = gtk_widget_get_allocated_height(drawing_area_);
+        if (allocated_width > 1) {
+            view_width = allocated_width;
+        }
+        if (allocated_height > 1) {
+            view_height = allocated_height;
+        }
+    }
+
+    view_width = std::max(1, view_width);
+    view_height = std::max(1, view_height);
+    const bool changed = (browser_view_width_ != view_width) || (browser_view_height_ != view_height);
+    width_ = view_width;
+    height_ = view_height;
+    browser_view_width_ = view_width;
+    browser_view_height_ = view_height;
+
+    if (changed && notify_browser && browser_ != nullptr) {
+        browser_->GetHost()->NotifyScreenInfoChanged();
+        browser_->GetHost()->WasResized();
+    }
+    return changed;
+}
+
+void CefOsrHostGtk::QueueDeferredResizeSync() {
+    if (deferred_resize_pending_) {
+        return;
+    }
+    deferred_resize_pending_ = true;
+    g_idle_add(&CefOsrHostGtk::DeferredResizeIdle, this);
 }
 
 uint32_t CefOsrHostGtk::CurrentModifiers() const {
@@ -460,11 +516,13 @@ void CefOsrHostGtk::NotifyBrowserCreated(CefRefPtr<CefBrowser> browser) {
         return;
     }
     browser_ = browser;
+    browser_view_width_ = 0;
+    browser_view_height_ = 0;
     gtk_widget_grab_focus(drawing_area_);
-    browser->GetHost()->NotifyScreenInfoChanged();
     browser->GetHost()->WasHidden(false);
     browser->GetHost()->SetFocus(true);
-    browser->GetHost()->WasResized();
+    SyncViewSizeFromAllocation(true, width_, height_);
+    QueueDeferredResizeSync();
 }
 
 void CefOsrHostGtk::SetWindowTitle(const std::string& title) {
