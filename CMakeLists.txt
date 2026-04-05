@@ -59,6 +59,8 @@ if(ENGINE_CEF_ENABLE_CEF)
     src/cef_osr_host_gtk.h
     src/cef_linux_main_runner.cc
     src/cef_linux_main_runner.h
+    src/cef_runtime_entry.cc
+    src/cef_runtime_entry.h
   )
   target_compile_features(engine_cef_runtime_host PUBLIC cxx_std_20)
   target_link_libraries(engine_cef_runtime_host PUBLIC engine_cef_core libcef_lib libcef_dll_wrapper PkgConfig::GTK3 ${CEF_STANDARD_LIBS})

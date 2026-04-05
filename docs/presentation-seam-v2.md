@@ -152,6 +152,8 @@ The working Linux proof bootstrap for that path is no longer trapped inside the 
 
 That runtime host is also now configured through explicit launch/runtime structs instead of relying only on proof-local global command-line parsing, which makes it a more realistic future handoff seam for non-proof callers.
 
+There is now also a tiny runtime-entry helper (`RunCefRuntimeEntry(...)`) that packages the reusable host behind a single call for future non-proof callers.
+
 Important caveat:
 
 - upstream `cefclient` OSR still crashes in this environment

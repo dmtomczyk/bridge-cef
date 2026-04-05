@@ -63,6 +63,7 @@ This does **not** mean Linux OSR is fully solved in general. Upstream `cefclient
 - that proof path can also verify successful presentation-v2 frame copy on first paint
 - the working Linux OSR bootstrap has now been extracted into a reusable `engine_cef_runtime_host` layer instead of living only in the proof `main()`
 - the reusable layer now accepts programmatic launch/runtime configuration instead of depending entirely on proof-only global CLI parsing
+- there is now also a tiny `RunCefRuntimeEntry(...)` helper on top of that layer so non-proof callers can invoke the runtime host without reconstructing `CefAppHost` + runner wiring themselves
 - upstream/Linux OSR remains fragile in this environment family
 - the sample-parity work was still worth doing because it separated proof-host issues from broader upstream runtime issues
 
