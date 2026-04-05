@@ -146,6 +146,7 @@ Important caveat:
 
 - upstream `cefclient` OSR still crashes in this environment
 - so Linux OSR should still be treated as environment-sensitive and not yet broadly solved
+- the current working first-frame recipe is proof-host specific, not yet a generic client-runtime guarantee
 
 So the **contract, client preference path, first producer wiring, and first working proof-frame recipe now exist**, but runtime portability/stability is still the next hardening step.
 
