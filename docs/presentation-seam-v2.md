@@ -120,13 +120,15 @@ The first v2 slice has now started:
 - `engine-cef` public headers expose `PresentationState`
 - the bridge exposes `presentation_state()` and `copy_latest_frame(...)`
 - the `client` CEF adapter prefers the engine-owned frame path when it is available
+- the proof-side CEF wiring now includes an experimental OSR/`OnPaint` frame path intended to feed that contract
 
 Current limitation:
 
-- the backend still reports `has_frame=false`
-- `copy_latest_frame(...)` truthfully returns an explanatory error until a real CEF frame producer lands
+- the producer path is not yet validated as stable
+- a first local `--use-osr` runtime probe still crashed, so this path remains experimental
+- until that runtime path is hardened, the backend should still be treated as effectively `has_frame=false` for normal client expectations
 
-So the **contract and client preference path now exist**, but the actual content-frame producer is still the next implementation step.
+So the **contract, client preference path, and first producer wiring now exist**, but runtime frame production is still the next hardening step.
 
 ## Recommended migration order after this note
 

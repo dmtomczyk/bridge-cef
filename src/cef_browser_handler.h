@@ -9,9 +9,10 @@
 class CefBrowserHandler : public CefClient,
                      public CefDisplayHandler,
                      public CefLifeSpanHandler,
-                     public CefLoadHandler {
+                     public CefLoadHandler,
+                     public CefRenderHandler {
 public:
-    CefBrowserHandler(bool is_alloy_style, bridge::cef::CefBackend::Ptr backend);
+    CefBrowserHandler(bool is_alloy_style, bool use_osr, bridge::cef::CefBackend::Ptr backend);
     ~CefBrowserHandler() override;
 
     static CefBrowserHandler* GetInstance();
@@ -19,6 +20,7 @@ public:
     CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
     CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+    CefRefPtr<CefRenderHandler> GetRenderHandler() override { return use_osr_ ? this : nullptr; }
 
     void OnAddressChange(CefRefPtr<CefBrowser> browser,
                          CefRefPtr<CefFrame> frame,
@@ -39,6 +41,13 @@ public:
                      ErrorCode errorCode,
                      const CefString& errorText,
                      const CefString& failedUrl) override;
+    void GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) override;
+    void OnPaint(CefRefPtr<CefBrowser> browser,
+                 PaintElementType type,
+                 const RectList& dirtyRects,
+                 const void* buffer,
+                 int width,
+                 int height) override;
 
     void CloseAllBrowsers(bool force_close);
 
@@ -47,6 +56,9 @@ private:
     void PlatformShowWindow(CefRefPtr<CefBrowser> browser);
 
     const bool is_alloy_style_;
+    const bool use_osr_;
+    const bool quit_after_first_frame_;
+    bool saw_first_frame_ = false;
     bridge::cef::CefBackend::Ptr backend_;
     using BrowserList = std::list<CefRefPtr<CefBrowser>>;
     BrowserList browser_list_;

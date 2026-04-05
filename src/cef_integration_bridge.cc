@@ -106,6 +106,20 @@ void CefIntegrationBridge::on_load_state_changed(const LoadState& state) {
     }
 }
 
+void CefIntegrationBridge::on_presentation_state_changed(const PresentationState& state) {
+    std::shared_ptr<IIntegrationBridgeObserver> observer;
+    BackendSnapshot snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_cache_.presentation = state;
+        snapshot = snapshot_cache_;
+        observer = bridge_observer_;
+    }
+    if (observer) {
+        observer->on_snapshot_changed(snapshot);
+    }
+}
+
 void CefIntegrationBridge::attach_observer() {
     backend_->set_observer(shared_from_this());
 }

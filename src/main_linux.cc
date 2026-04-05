@@ -46,6 +46,9 @@ int main(int argc, char* argv[]) {
 #if !defined(CEF_USE_SANDBOX)
     settings.no_sandbox = true;
 #endif
+    if (command_line->HasSwitch("use-osr")) {
+        settings.windowless_rendering_enabled = true;
+    }
 
     CefRefPtr<CefAppHost> app(new CefAppHost);
     if (!CefInitialize(main_args, settings, app.get(), nullptr)) {

@@ -23,8 +23,12 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
 }  // namespace
 
 CefBrowserHandler::CefBrowserHandler(bool is_alloy_style,
+                                     bool use_osr,
                                      bridge::cef::CefBackend::Ptr backend)
-    : is_alloy_style_(is_alloy_style), backend_(std::move(backend)) {
+    : is_alloy_style_(is_alloy_style),
+      use_osr_(use_osr),
+      quit_after_first_frame_(CefCommandLine::GetGlobalCommandLine()->HasSwitch("quit-after-first-frame")),
+      backend_(std::move(backend)) {
     g_instance = this;
 }
 
@@ -62,6 +66,9 @@ void CefBrowserHandler::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefSt
 void CefBrowserHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     CEF_REQUIRE_UI_THREAD();
     browser_list_.push_back(browser);
+    if (use_osr_) {
+        browser->GetHost()->WasResized();
+    }
 }
 
 bool CefBrowserHandler::DoClose(CefRefPtr<CefBrowser> browser) {
@@ -125,6 +132,36 @@ void CefBrowserHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
        << std::string(failedUrl) << " with error " << std::string(errorText)
        << " (" << errorCode << ").</h2></body></html>";
     frame->LoadURL(GetDataURI(ss.str(), "text/html"));
+}
+
+void CefBrowserHandler::GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    const auto presentation = backend_ ? backend_->presentation_state() : bridge::cef::PresentationState{};
+    const int width = presentation.width > 0 ? presentation.width : 1280;
+    const int height = presentation.height > 0 ? presentation.height : 800;
+    rect = CefRect(0, 0, width, height);
+}
+
+void CefBrowserHandler::OnPaint(CefRefPtr<CefBrowser> browser,
+                                PaintElementType type,
+                                const RectList& dirtyRects,
+                                const void* buffer,
+                                int width,
+                                int height) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)dirtyRects;
+    if (type != PET_VIEW || !backend_ || buffer == nullptr) {
+        return;
+    }
+    backend_->observe_frame(static_cast<const std::uint32_t*>(buffer),
+                            width,
+                            height,
+                            width * static_cast<int>(sizeof(std::uint32_t)));
+    if (quit_after_first_frame_ && !saw_first_frame_) {
+        saw_first_frame_ = true;
+        CefPostTask(TID_UI, base::BindOnce(&CefBrowserHandler::CloseAllBrowsers, this, true));
+    }
 }
 
 void CefBrowserHandler::CloseAllBrowsers(bool force_close) {

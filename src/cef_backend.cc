@@ -18,6 +18,9 @@ bool CefBackend::initialize(const InitParams& params, std::string* error_out) {
     load_state_.first_page_shown = false;
     load_state_.last_error.clear();
     presentation_state_ = PresentationState{};
+    presentation_state_.width = width_;
+    presentation_state_.height = height_;
+    presentation_state_.stride_bytes = width_ * static_cast<int>(sizeof(std::uint32_t));
     latest_frame_argb_.clear();
     initialized_ = true;
     if (error_out) {
@@ -226,6 +229,35 @@ void CefBackend::observe_load_error(const std::string& error) {
     }
     if (observer) {
         observer->on_load_state_changed(load);
+    }
+}
+
+void CefBackend::observe_frame(const std::uint32_t* argb, int width, int height, int stride_bytes) {
+    if (argb == nullptr || width <= 0 || height <= 0 || stride_bytes <= 0) {
+        return;
+    }
+
+    std::shared_ptr<IBackendObserver> observer;
+    PresentationState presentation;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        latest_frame_argb_.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
+        const int stride_pixels = std::max(1, stride_bytes / static_cast<int>(sizeof(std::uint32_t)));
+        for (int y = 0; y < height; ++y) {
+            const auto* src_row = argb + static_cast<std::size_t>(y) * static_cast<std::size_t>(stride_pixels);
+            auto* dst_row = latest_frame_argb_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width);
+            std::copy_n(src_row, width, dst_row);
+        }
+        presentation_state_.has_frame = true;
+        presentation_state_.width = width;
+        presentation_state_.height = height;
+        presentation_state_.stride_bytes = width * static_cast<int>(sizeof(std::uint32_t));
+        presentation_state_.frame_generation += 1;
+        observer = observer_;
+        presentation = presentation_state_;
+    }
+    if (observer) {
+        observer->on_presentation_state_changed(presentation);
     }
 }
 

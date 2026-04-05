@@ -44,6 +44,7 @@ public:
 
     void on_page_state_changed(const PageState& state) override;
     void on_load_state_changed(const LoadState& state) override;
+    void on_presentation_state_changed(const PresentationState& state) override;
 
 private:
     void attach_observer();

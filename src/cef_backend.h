@@ -15,6 +15,7 @@ public:
     virtual ~IBackendObserver() = default;
     virtual void on_page_state_changed(const PageState& state) = 0;
     virtual void on_load_state_changed(const LoadState& state) = 0;
+    virtual void on_presentation_state_changed(const PresentationState& state) = 0;
 };
 
 class IBackend {
@@ -81,6 +82,7 @@ public:
     void observe_loading_state(bool loading, bool can_go_back, bool can_go_forward);
     void observe_load_end();
     void observe_load_error(const std::string& error);
+    void observe_frame(const std::uint32_t* argb, int width, int height, int stride_bytes);
 
 private:
     InitParams init_params_{};

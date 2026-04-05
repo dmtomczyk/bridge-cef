@@ -86,10 +86,14 @@ void CefAppHost::OnContextInitialized() {
 
     auto command_line = CefCommandLine::GetGlobalCommandLine();
     const bool use_alloy_style = !command_line->HasSwitch("disable-alloy-style");
+    const bool use_osr = command_line->HasSwitch("use-osr");
     const cef_runtime_style_t runtime_style =
         use_alloy_style ? CEF_RUNTIME_STYLE_ALLOY : CEF_RUNTIME_STYLE_DEFAULT;
 
     CefBrowserSettings browser_settings;
+    if (use_osr) {
+        browser_settings.windowless_frame_rate = 30;
+    }
 
     std::string url = command_line->GetSwitchValue("url");
     if (url.empty()) {
@@ -102,10 +106,15 @@ void CefAppHost::OnContextInitialized() {
     std::string init_error;
     backend_->initialize(params, &init_error);
 
-    CefRefPtr<CefBrowserHandler> handler(new CefBrowserHandler(use_alloy_style, backend_));
+    CefRefPtr<CefBrowserHandler> handler(new CefBrowserHandler(use_alloy_style, use_osr, backend_));
 
     const bool use_views = !command_line->HasSwitch("use-native");
-    if (use_views) {
+    if (use_osr) {
+        CefWindowInfo window_info;
+        window_info.SetAsWindowless(0);
+        window_info.runtime_style = runtime_style;
+        CefBrowserHost::CreateBrowser(window_info, handler, url, browser_settings, nullptr, nullptr);
+    } else if (use_views) {
         CefRefPtr<CefBrowserView> browser_view = CefBrowserView::CreateBrowserView(
             handler, url, browser_settings, nullptr, nullptr,
             new CefBrowserViewDelegateImpl(runtime_style));
