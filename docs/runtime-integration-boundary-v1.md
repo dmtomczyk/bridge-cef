@@ -99,6 +99,8 @@ The next implementation step should be small:
 3. let a future non-proof caller attach an `IIntegrationBridgeObserver`
 4. use first frame (`presentation.has_frame`) as the first readiness signal
 
+The first guardrail for this seam should stay cheap: a CEF-enabled test can construct `CefRuntimeHost`, attach an observer through `host.bridge()`, feed a synthetic frame into the internal backend in-test, and verify that the observer sees `presentation.has_frame=true`.
+
 ## Plain-English summary
 
 For now, the runtime boundary should be:
@@ -106,3 +108,5 @@ For now, the runtime boundary should be:
 **caller owns `CefRuntimeHost`; caller observes readiness through the bridge; first frame is readiness.**
 
 That is small, true, and aligned with the code we already have.
+
+A first narrow non-proof caller path can now be expressed as a tiny host-owned probe: construct `CefRuntimeHost`, attach a bridge observer, and call `CefRuntimeHost::RequestQuit()` when the observer sees `presentation.has_frame=true`.

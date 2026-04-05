@@ -69,6 +69,11 @@ if(ENGINE_CEF_ENABLE_CEF)
     ${CEF_INCLUDE_PATH}
   )
 
+  add_executable(engine_cef_runtime_host_bridge_observer_test tests/runtime_host_bridge_observer_test.cpp)
+  target_compile_features(engine_cef_runtime_host_bridge_observer_test PRIVATE cxx_std_20)
+  target_link_libraries(engine_cef_runtime_host_bridge_observer_test PRIVATE engine_cef_runtime_host)
+  add_test(NAME engine_cef_runtime_host_bridge_observer_test COMMAND engine_cef_runtime_host_bridge_observer_test)
+
   add_executable(engine_cef_proof
     src/main_linux.cc
   )
@@ -81,12 +86,28 @@ if(ENGINE_CEF_ENABLE_CEF)
     RUNTIME_OUTPUT_DIRECTORY ${CEF_TARGET_OUT_DIR}
   )
 
+  add_executable(engine_cef_runtime_host_probe
+    src/runtime_host_probe_linux.cc
+  )
+  set_executable_target_properties(engine_cef_runtime_host_probe)
+  add_dependencies(engine_cef_runtime_host_probe libcef_dll_wrapper)
+  target_link_libraries(engine_cef_runtime_host_probe engine_cef_runtime_host)
+  set_target_properties(engine_cef_runtime_host_probe PROPERTIES
+    INSTALL_RPATH "$ORIGIN"
+    BUILD_WITH_INSTALL_RPATH TRUE
+    RUNTIME_OUTPUT_DIRECTORY ${CEF_TARGET_OUT_DIR}
+  )
+
   copy_files("engine_cef_proof" "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
   copy_files("engine_cef_proof" "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${CEF_TARGET_OUT_DIR}")
+  copy_files("engine_cef_runtime_host_probe" "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
+  copy_files("engine_cef_runtime_host_probe" "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${CEF_TARGET_OUT_DIR}")
   if(EXISTS "${CEF_BINARY_DIR}/libminigbm.so")
     copy_files("engine_cef_proof" "libminigbm.so" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
+    copy_files("engine_cef_runtime_host_probe" "libminigbm.so" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
   endif()
   set_linux_suid_permissions("engine_cef_proof" "${CEF_TARGET_OUT_DIR}/chrome-sandbox")
+  set_linux_suid_permissions("engine_cef_runtime_host_probe" "${CEF_TARGET_OUT_DIR}/chrome-sandbox")
 else()
   message(STATUS "engine-cef scaffold only. Reconfigure with -DENGINE_CEF_ENABLE_CEF=ON once a CEF distribution is available.")
   add_executable(engine_cef_proof src/main_stub.cpp)
