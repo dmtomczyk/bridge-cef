@@ -1,9 +1,12 @@
 #include "cef_app_host.h"
 
+#include <cstdlib>
 #include <filesystem>
+#include <unistd.h>
 
 #if defined(CEF_X11)
 #include <X11/Xlib.h>
+#include <gtk/gtk.h>
 #endif
 
 #include "include/base/cef_logging.h"
@@ -37,11 +40,6 @@ int main(int argc, char* argv[]) {
         return exit_code;
     }
 
-#if defined(CEF_X11)
-    XSetErrorHandler(XErrorHandlerImpl);
-    XSetIOErrorHandler(XIOErrorHandlerImpl);
-#endif
-
     CefRefPtr<CefCommandLine> command_line = CefCommandLine::CreateCommandLine();
     command_line->InitFromArgv(argc, argv);
 
@@ -49,7 +47,9 @@ int main(int argc, char* argv[]) {
 #if !defined(CEF_USE_SANDBOX)
     settings.no_sandbox = true;
 #endif
-    const std::filesystem::path root_cache = std::filesystem::path("/tmp") / "bridge-engine-cef-proof-cache";
+    const std::filesystem::path root_cache =
+        std::filesystem::path("/tmp") /
+        (std::string("bridge-engine-cef-proof-cache-") + std::to_string(::getpid()));
     std::filesystem::create_directories(root_cache);
     CefString(&settings.root_cache_path) = root_cache.string();
     CefString(&settings.cache_path) = root_cache.string();
@@ -57,10 +57,22 @@ int main(int argc, char* argv[]) {
         settings.windowless_rendering_enabled = true;
     }
 
+#if defined(CEF_X11)
+    if (command_line->HasSwitch("use-osr")) {
+        setenv("GDK_BACKEND", "x11", 1);
+        gdk_set_allowed_backends("x11");
+        gtk_disable_setlocale();
+        gtk_init(&argc, &argv);
+    }
+    XSetErrorHandler(XErrorHandlerImpl);
+    XSetIOErrorHandler(XIOErrorHandlerImpl);
+#endif
+
     if (!CefInitialize(main_args, settings, app.get(), nullptr)) {
         return CefGetExitCode();
     }
 
+    app->CreateInitialBrowser();
     CefRunMessageLoop();
     CefShutdown();
     return 0;

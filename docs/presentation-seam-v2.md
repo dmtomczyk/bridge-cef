@@ -136,9 +136,18 @@ Additional runtime-hardening work has now started on the proof path:
 - proof-only hidden X11 parent window handle on Linux
 - safer first-frame shutdown probing
 
-Even with those changes, the current Linux proof still crashes before the first observed `OnPaint`, so the next work remains specifically **OSR startup stabilization**, not broader client/contract work.
+The short plan for making the proof more faithful to upstream Linux OSR hosting now lives in:
 
-So the **contract, client preference path, and first producer wiring now exist**, but runtime frame production is still the next hardening step.
+- `docs/linux-osr-sample-parity-plan.md`
+
+That sample-parity work has now produced a proof breakthrough: the Linux proof can reach first observed `OnPaint` and exit cleanly when run through the GTK/X11-backed OSR host path with X11-forced GTK backend selection.
+
+Important caveat:
+
+- upstream `cefclient` OSR still crashes in this environment
+- so Linux OSR should still be treated as environment-sensitive and not yet broadly solved
+
+So the **contract, client preference path, first producer wiring, and first working proof-frame recipe now exist**, but runtime portability/stability is still the next hardening step.
 
 ## Recommended migration order after this note
 

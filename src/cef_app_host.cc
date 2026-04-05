@@ -12,6 +12,7 @@
 #include "include/views/cef_window.h"
 #include "include/wrapper/cef_helpers.h"
 #include "cef_browser_handler.h"
+#include "cef_osr_host_gtk.h"
 
 namespace {
 
@@ -43,32 +44,6 @@ void ApplyOsrSafeSwitches(CefRefPtr<CefCommandLine> command_line) {
     command_line->AppendSwitchWithValue("password-store", "basic");
     command_line->AppendSwitchWithValue("use-angle", "swiftshader");
 }
-
-#if defined(CEF_X11)
-CefWindowHandle GetOsrParentWindowHandle() {
-    static Display* display = XOpenDisplay(nullptr);
-    static ::Window window = 0;
-    if (!display) {
-        return 0;
-    }
-    if (!window) {
-        const int screen = DefaultScreen(display);
-        const ::Window root = RootWindow(display, screen);
-        window = XCreateSimpleWindow(display,
-                                     root,
-                                     0,
-                                     0,
-                                     1,
-                                     1,
-                                     0,
-                                     BlackPixel(display, screen),
-                                     BlackPixel(display, screen));
-        XMapWindow(display, window);
-        XFlush(display);
-    }
-    return static_cast<CefWindowHandle>(window);
-}
-#endif
 
 class CefWindowDelegateImpl : public CefWindowDelegate {
 public:
@@ -152,6 +127,15 @@ void CefAppHost::OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_li
 
 void CefAppHost::OnContextInitialized() {
     CEF_REQUIRE_UI_THREAD();
+    context_initialized_ = true;
+}
+
+void CefAppHost::CreateInitialBrowser() {
+    CEF_REQUIRE_UI_THREAD();
+    if (!context_initialized_) {
+        LOG(ERROR) << "CreateInitialBrowser called before OnContextInitialized";
+        return;
+    }
 
     auto command_line = CefCommandLine::GetGlobalCommandLine();
     const bool use_alloy_style = !command_line->HasSwitch("disable-alloy-style");
@@ -175,16 +159,23 @@ void CefAppHost::OnContextInitialized() {
     std::string init_error;
     backend_->initialize(params, &init_error);
 
-    CefRefPtr<CefBrowserHandler> handler(new CefBrowserHandler(use_alloy_style, use_osr, backend_));
+    if (use_osr) {
+        if (!osr_host_) {
+            osr_host_ = std::make_unique<CefOsrHostGtk>();
+        }
+        if (!osr_host_->Initialize()) {
+            LOG(ERROR) << "Failed to initialize GTK/X11 OSR host";
+            return;
+        }
+    }
+
+    CefRefPtr<CefBrowserHandler> handler(
+        new CefBrowserHandler(use_alloy_style, use_osr, backend_, osr_host_.get()));
 
     const bool use_views = !command_line->HasSwitch("use-native");
     if (use_osr) {
         CefWindowInfo window_info;
-#if defined(CEF_X11)
-        window_info.SetAsWindowless(GetOsrParentWindowHandle());
-#else
-        window_info.SetAsWindowless(0);
-#endif
+        window_info.SetAsWindowless(osr_host_->parent_handle());
         window_info.shared_texture_enabled = false;
         window_info.external_begin_frame_enabled = false;
         window_info.runtime_style = runtime_style;

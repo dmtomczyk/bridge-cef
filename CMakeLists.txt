@@ -40,16 +40,21 @@ if(ENGINE_CEF_ENABLE_CEF)
   set_cef_target_out_dir()
   add_subdirectory(${CEF_LIBCEF_DLL_WRAPPER_PATH} libcef_dll_wrapper)
 
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
+
   add_executable(engine_cef_proof
     src/main_linux.cc
     src/cef_app_host.cc
     src/cef_app_host.h
     src/cef_browser_handler.cc
     src/cef_browser_handler.h
+    src/cef_osr_host_gtk.cc
+    src/cef_osr_host_gtk.h
   )
   set_executable_target_properties(engine_cef_proof)
   add_dependencies(engine_cef_proof libcef_dll_wrapper)
-  target_link_libraries(engine_cef_proof engine_cef_core libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+  target_link_libraries(engine_cef_proof engine_cef_core libcef_lib libcef_dll_wrapper PkgConfig::GTK3 ${CEF_STANDARD_LIBS})
   set_target_properties(engine_cef_proof PROPERTIES
     INSTALL_RPATH "$ORIGIN"
     BUILD_WITH_INSTALL_RPATH TRUE

@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "cef_backend.h"
+#include "cef_osr_host_gtk.h"
 #include "include/cef_client.h"
 
 class CefBrowserHandler : public CefClient,
@@ -12,7 +13,10 @@ class CefBrowserHandler : public CefClient,
                      public CefLoadHandler,
                      public CefRenderHandler {
 public:
-    CefBrowserHandler(bool is_alloy_style, bool use_osr, bridge::cef::CefBackend::Ptr backend);
+    CefBrowserHandler(bool is_alloy_style,
+                      bool use_osr,
+                      bridge::cef::CefBackend::Ptr backend,
+                      CefOsrHostGtk* osr_host = nullptr);
     ~CefBrowserHandler() override;
 
     static CefBrowserHandler* GetInstance();
@@ -63,6 +67,7 @@ private:
     const bool quit_after_first_frame_;
     bool saw_first_frame_ = false;
     bridge::cef::CefBackend::Ptr backend_;
+    CefOsrHostGtk* osr_host_ = nullptr;
     using BrowserList = std::list<CefRefPtr<CefBrowser>>;
     BrowserList browser_list_;
     bool is_closing_ = false;

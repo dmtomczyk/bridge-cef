@@ -24,11 +24,13 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
 
 CefBrowserHandler::CefBrowserHandler(bool is_alloy_style,
                                      bool use_osr,
-                                     bridge::cef::CefBackend::Ptr backend)
+                                     bridge::cef::CefBackend::Ptr backend,
+                                     CefOsrHostGtk* osr_host)
     : is_alloy_style_(is_alloy_style),
       use_osr_(use_osr),
       quit_after_first_frame_(CefCommandLine::GetGlobalCommandLine()->HasSwitch("quit-after-first-frame")),
-      backend_(std::move(backend)) {
+      backend_(std::move(backend)),
+      osr_host_(osr_host) {
     g_instance = this;
 }
 
@@ -67,7 +69,14 @@ void CefBrowserHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     CEF_REQUIRE_UI_THREAD();
     browser_list_.push_back(browser);
     if (use_osr_) {
-        browser->GetHost()->WasResized();
+        if (osr_host_) {
+            osr_host_->NotifyBrowserCreated(browser);
+        } else {
+            browser->GetHost()->NotifyScreenInfoChanged();
+            browser->GetHost()->WasHidden(false);
+            browser->GetHost()->SetFocus(true);
+            browser->GetHost()->WasResized();
+        }
     }
 }
 
@@ -136,6 +145,9 @@ void CefBrowserHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
 
 bool CefBrowserHandler::GetRootScreenRect(CefRefPtr<CefBrowser> browser, CefRect& rect) {
     CEF_REQUIRE_UI_THREAD();
+    if (osr_host_) {
+        return osr_host_->GetRootScreenRect(rect);
+    }
     GetViewRect(browser, rect);
     return true;
 }
@@ -147,6 +159,9 @@ bool CefBrowserHandler::GetScreenPoint(CefRefPtr<CefBrowser> browser,
                                        int& screenY) {
     CEF_REQUIRE_UI_THREAD();
     (void)browser;
+    if (osr_host_) {
+        return osr_host_->GetScreenPoint(viewX, viewY, screenX, screenY);
+    }
     screenX = viewX;
     screenY = viewY;
     return true;
@@ -154,6 +169,9 @@ bool CefBrowserHandler::GetScreenPoint(CefRefPtr<CefBrowser> browser,
 
 bool CefBrowserHandler::GetScreenInfo(CefRefPtr<CefBrowser> browser, CefScreenInfo& screen_info) {
     CEF_REQUIRE_UI_THREAD();
+    if (osr_host_) {
+        return osr_host_->GetScreenInfo(screen_info);
+    }
     CefRect rect;
     GetViewRect(browser, rect);
     screen_info.device_scale_factor = 1.0f;
@@ -168,6 +186,10 @@ bool CefBrowserHandler::GetScreenInfo(CefRefPtr<CefBrowser> browser, CefScreenIn
 void CefBrowserHandler::GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) {
     CEF_REQUIRE_UI_THREAD();
     (void)browser;
+    if (osr_host_) {
+        osr_host_->GetViewRect(rect);
+        return;
+    }
     const auto presentation = backend_ ? backend_->presentation_state() : bridge::cef::PresentationState{};
     const int width = presentation.width > 0 ? presentation.width : 1280;
     const int height = presentation.height > 0 ? presentation.height : 800;
@@ -190,14 +212,11 @@ void CefBrowserHandler::OnPaint(CefRefPtr<CefBrowser> browser,
                             height,
                             width * static_cast<int>(sizeof(std::uint32_t)));
     if (!saw_first_frame_) {
-        LOG(INFO) << "engine-cef osr first frame " << width << "x" << height;
+        LOG(WARNING) << "engine-cef osr first frame " << width << "x" << height;
     }
     if (quit_after_first_frame_ && !saw_first_frame_) {
         saw_first_frame_ = true;
-        CefPostTask(TID_UI,
-                    base::BindOnce(&CefBrowserHandler::CloseAllBrowsers,
-                                   CefRefPtr<CefBrowserHandler>(this),
-                                   true));
+        CefPostTask(TID_UI, base::BindOnce(&CefQuitMessageLoop));
     }
 }
 
