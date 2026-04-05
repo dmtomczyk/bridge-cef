@@ -67,7 +67,11 @@ Also avoid turning proof-specific assumptions into accidental long-term public A
 
 ### Short design pause before deeper runtime integration
 
-Write one short note that defines the intended client/runtime boundary.
+That refinement note now lives in:
+
+- `docs/runtime-integration-boundary-v1.md`
+
+It defines the intended near-term boundary explicitly.
 
 It should answer:
 
