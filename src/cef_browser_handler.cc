@@ -54,6 +54,9 @@ void CefBrowserHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
     if (frame && frame->IsMain() && backend_) {
         backend_->observe_address_change(url.ToString());
     }
+    if (frame && frame->IsMain() && osr_host_) {
+        osr_host_->SetCurrentUrl(url.ToString());
+    }
 }
 
 void CefBrowserHandler::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) {
@@ -116,6 +119,9 @@ void CefBrowserHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
     if (backend_) {
         backend_->observe_loading_state(isLoading, canGoBack, canGoForward);
     }
+    if (osr_host_) {
+        osr_host_->SetLoadingState(isLoading, canGoBack, canGoForward);
+    }
 }
 
 void CefBrowserHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
@@ -138,6 +144,9 @@ void CefBrowserHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
     }
     if (backend_ && frame && frame->IsMain()) {
         backend_->observe_load_error(errorText.ToString());
+    }
+    if (frame && frame->IsMain() && osr_host_) {
+        osr_host_->SetLoadError(errorText.ToString(), failedUrl.ToString());
     }
     if (!is_alloy_style_) {
         return;

@@ -19,6 +19,15 @@ constexpr double kChromeBgG = 0.10;
 constexpr double kChromeBgB = 0.14;
 constexpr double kChromeBorder = 0.22;
 
+std::string EllipsizeMiddle(const std::string& text, std::size_t max_chars) {
+    if (text.size() <= max_chars || max_chars < 8) {
+        return text;
+    }
+    const std::size_t left = (max_chars - 3) / 2;
+    const std::size_t right = max_chars - 3 - left;
+    return text.substr(0, left) + "..." + text.substr(text.size() - right);
+}
+
 }  // namespace
 
 CefOsrHostGtk::CefOsrHostGtk() = default;
@@ -310,27 +319,27 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     cairo_move_to(cr, 38.0, 31.0);
     cairo_show_text(cr, "BRIDGE");
 
-    auto draw_button = [&](double x, double y, double w, double h, const char* label) {
-        cairo_set_source_rgba(cr, 0.16, 0.20, 0.27, 0.98);
+    auto draw_button = [&](double x, double y, double w, double h, const char* label, bool enabled) {
+        cairo_set_source_rgba(cr, enabled ? 0.16 : 0.11, enabled ? 0.20 : 0.14, enabled ? 0.27 : 0.18, 0.98);
         cairo_rectangle(cr, x, y, w, h);
         cairo_fill(cr);
-        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.12);
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, kChromeBorder);
         cairo_rectangle(cr, x, y, w, h);
         cairo_stroke(cr);
-        cairo_set_source_rgb(cr, 0.95, 0.98, 1.0);
+        cairo_set_source_rgba(cr, 0.95, 0.98, 1.0, enabled ? 1.0 : 0.45);
         cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
         cairo_set_font_size(cr, 13.0);
         cairo_move_to(cr, x + 12.0, y + 18.0);
         cairo_show_text(cr, label);
     };
 
-    draw_button(112.0, 11.0, 30.0, 26.0, "<");
-    draw_button(148.0, 11.0, 30.0, 26.0, ">");
-    draw_button(184.0, 11.0, 42.0, 26.0, "R");
+    draw_button(112.0, 11.0, 30.0, 26.0, "<", can_go_back_);
+    draw_button(148.0, 11.0, 30.0, 26.0, ">", can_go_forward_);
+    draw_button(184.0, 11.0, 42.0, 26.0, "R", true);
 
     const double address_x = 238.0;
     const double address_y = 10.0;
-    const double address_w = std::max(160.0, static_cast<double>(draw_width) - 334.0);
+    const double address_w = std::max(160.0, static_cast<double>(draw_width) - 414.0);
     const double address_h = 28.0;
     cairo_set_source_rgba(cr, 0.11, 0.14, 0.19, 0.98);
     cairo_rectangle(cr, address_x, address_y, address_w, address_h);
@@ -338,13 +347,42 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.16);
     cairo_rectangle(cr, address_x, address_y, address_w, address_h);
     cairo_stroke(cr);
-    cairo_set_source_rgba(cr, 0.82, 0.87, 0.93, 0.72);
+    cairo_set_source_rgba(cr, 0.93, 0.97, 1.0, 0.92);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 12.0);
+    const std::string address_text = current_url_.empty() ? std::string("Address field") : EllipsizeMiddle(current_url_, 90);
+    cairo_save(cr);
+    cairo_rectangle(cr, address_x + 8.0, address_y + 4.0, address_w - 16.0, address_h - 8.0);
+    cairo_clip(cr);
     cairo_move_to(cr, address_x + 12.0, address_y + 18.0);
-    cairo_show_text(cr, "Address field");
+    cairo_show_text(cr, address_text.c_str());
+    cairo_restore(cr);
 
-    draw_button(address_x + address_w + 10.0, 11.0, 40.0, 26.0, "Go");
+    draw_button(address_x + address_w + 10.0, 11.0, 40.0, 26.0, "Go", true);
+
+    const char* status_label = "Ready";
+    double status_r = 0.36;
+    double status_g = 0.78;
+    double status_b = 0.48;
+    if (!load_error_text_.empty()) {
+        status_label = "Load failed";
+        status_r = 0.87;
+        status_g = 0.31;
+        status_b = 0.31;
+    } else if (is_loading_) {
+        status_label = "Loading";
+        status_r = 0.90;
+        status_g = 0.74;
+        status_b = 0.25;
+    }
+    cairo_set_source_rgb(cr, status_r, status_g, status_b);
+    cairo_arc(cr, draw_width - 114.0, 24.0, 4.0, 0.0, 6.28318530718);
+    cairo_fill(cr);
+    cairo_set_source_rgba(cr, 0.88, 0.92, 0.98, 0.86);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 11.0);
+    cairo_move_to(cr, draw_width - 104.0, 28.0);
+    cairo_show_text(cr, status_label);
 
     cairo_set_source_rgba(cr, 0.80, 0.85, 0.92, 0.78);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
@@ -598,6 +636,41 @@ void CefOsrHostGtk::NotifyBrowserCreated(CefRefPtr<CefBrowser> browser) {
     browser->GetHost()->SetFocus(true);
     SyncViewSizeFromAllocation(true, width_, height_);
     QueueDeferredResizeSync();
+}
+
+void CefOsrHostGtk::SetCurrentUrl(const std::string& url) {
+    current_url_ = url;
+#if defined(CEF_X11)
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
+void CefOsrHostGtk::SetLoadingState(bool is_loading, bool can_go_back, bool can_go_forward) {
+    is_loading_ = is_loading;
+    can_go_back_ = can_go_back;
+    can_go_forward_ = can_go_forward;
+    if (is_loading_) {
+        load_error_text_.clear();
+        failed_url_.clear();
+    }
+#if defined(CEF_X11)
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
+void CefOsrHostGtk::SetLoadError(const std::string& error_text, const std::string& failed_url) {
+    load_error_text_ = error_text;
+    failed_url_ = failed_url;
+    is_loading_ = false;
+#if defined(CEF_X11)
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
 }
 
 void CefOsrHostGtk::SetWindowTitle(const std::string& title) {
