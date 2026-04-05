@@ -144,6 +144,8 @@ That sample-parity work has now produced a proof breakthrough: the Linux proof c
 
 That proof-side verification step now also works: the proof can confirm on first OSR paint that the presentation v2 surface is populated (`has_frame=true` in practice) and that `copy_latest_frame(...)` succeeds for the delivered frame.
 
+The verification path now runs through the integration bridge surface, not only the internal backend object, which means the proof is exercising the same frame-copy contract shape that the client-facing path consumes.
+
 Important caveat:
 
 - upstream `cefclient` OSR still crashes in this environment

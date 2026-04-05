@@ -157,7 +157,7 @@ void CefAppHost::CreateInitialBrowser() {
     params.initial_url = url;
     params.use_alloy_style = use_alloy_style;
     std::string init_error;
-    backend_->initialize(params, &init_error);
+    bridge_->initialize(params, &init_error);
 
     if (use_osr) {
         if (!osr_host_) {
@@ -170,7 +170,7 @@ void CefAppHost::CreateInitialBrowser() {
     }
 
     CefRefPtr<CefBrowserHandler> handler(
-        new CefBrowserHandler(use_alloy_style, use_osr, backend_, osr_host_.get()));
+        new CefBrowserHandler(use_alloy_style, use_osr, bridge_->backend(), bridge_, osr_host_.get()));
 
     const bool use_views = !command_line->HasSwitch("use-native");
     if (use_osr) {

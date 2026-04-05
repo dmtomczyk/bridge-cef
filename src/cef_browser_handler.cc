@@ -25,12 +25,14 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
 CefBrowserHandler::CefBrowserHandler(bool is_alloy_style,
                                      bool use_osr,
                                      bridge::cef::CefBackend::Ptr backend,
+                                     std::shared_ptr<bridge::cef::IIntegrationBridge> bridge,
                                      CefOsrHostGtk* osr_host)
     : is_alloy_style_(is_alloy_style),
       use_osr_(use_osr),
       quit_after_first_frame_(CefCommandLine::GetGlobalCommandLine()->HasSwitch("quit-after-first-frame")),
       verify_presentation_v2_(CefCommandLine::GetGlobalCommandLine()->HasSwitch("verify-presentation-v2")),
       backend_(std::move(backend)),
+      bridge_(std::move(bridge)),
       osr_host_(osr_host) {
     g_instance = this;
 }
@@ -216,24 +218,30 @@ void CefBrowserHandler::OnPaint(CefRefPtr<CefBrowser> browser,
         LOG(WARNING) << "engine-cef osr first frame " << width << "x" << height;
     }
     if (verify_presentation_v2_ && !verified_presentation_v2_) {
-        const auto presentation = backend_->presentation_state();
+        const auto presentation = bridge_ ? bridge_->presentation_state() : backend_->presentation_state();
         std::string copy_error;
         std::vector<std::uint32_t> copied(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
-        const bool copy_ok = backend_->copy_latest_frame(copied.data(),
-                                                         width,
-                                                         height,
-                                                         width * static_cast<int>(sizeof(std::uint32_t)),
-                                                         &copy_error);
+        const bool copy_ok = bridge_
+                                 ? bridge_->copy_latest_frame(copied.data(),
+                                                              width,
+                                                              height,
+                                                              width * static_cast<int>(sizeof(std::uint32_t)),
+                                                              &copy_error)
+                                 : backend_->copy_latest_frame(copied.data(),
+                                                               width,
+                                                               height,
+                                                               width * static_cast<int>(sizeof(std::uint32_t)),
+                                                               &copy_error);
         if (presentation.has_frame && presentation.width == width && presentation.height == height && copy_ok) {
             verified_presentation_v2_ = true;
             fprintf(stderr,
-                    "engine-cef verified presentation-v2 frame copy %dx%d generation=%llu\n",
+                    "engine-cef verified presentation-v2 bridge frame copy %dx%d generation=%llu\n",
                     presentation.width,
                     presentation.height,
                     static_cast<unsigned long long>(presentation.frame_generation));
         } else {
             fprintf(stderr,
-                    "engine-cef failed presentation-v2 frame verification has_frame=%d size=%dx%d copy_ok=%d error=%s\n",
+                    "engine-cef failed presentation-v2 bridge verification has_frame=%d size=%dx%d copy_ok=%d error=%s\n",
                     presentation.has_frame ? 1 : 0,
                     presentation.width,
                     presentation.height,

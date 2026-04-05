@@ -5,6 +5,7 @@
 
 #include "cef_backend.h"
 #include "cef_osr_host_gtk.h"
+#include "engine_cef/integration_bridge.h"
 #include "include/cef_client.h"
 
 class CefBrowserHandler : public CefClient,
@@ -16,6 +17,7 @@ public:
     CefBrowserHandler(bool is_alloy_style,
                       bool use_osr,
                       bridge::cef::CefBackend::Ptr backend,
+                      std::shared_ptr<bridge::cef::IIntegrationBridge> bridge = nullptr,
                       CefOsrHostGtk* osr_host = nullptr);
     ~CefBrowserHandler() override;
 
@@ -69,6 +71,7 @@ private:
     bool saw_first_frame_ = false;
     bool verified_presentation_v2_ = false;
     bridge::cef::CefBackend::Ptr backend_;
+    std::shared_ptr<bridge::cef::IIntegrationBridge> bridge_{};
     CefOsrHostGtk* osr_host_ = nullptr;
     using BrowserList = std::list<CefRefPtr<CefBrowser>>;
     BrowserList browser_list_;

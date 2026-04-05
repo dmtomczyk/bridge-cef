@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "cef_backend.h"
+#include "cef_integration_bridge.h"
 #include "cef_osr_host_gtk.h"
 #include "include/cef_app.h"
 
@@ -20,10 +21,11 @@ public:
 
     void CreateInitialBrowser();
 
-    bridge::cef::CefBackend::Ptr backend() const { return backend_; }
+    bridge::cef::CefBackend::Ptr backend() const { return bridge_->backend(); }
+    std::shared_ptr<bridge::cef::IIntegrationBridge> bridge() const { return bridge_; }
 
 private:
-    bridge::cef::CefBackend::Ptr backend_ = std::make_shared<bridge::cef::CefBackend>();
+    bridge::cef::CefIntegrationBridge::Ptr bridge_ = std::make_shared<bridge::cef::CefIntegrationBridge>();
     std::unique_ptr<CefOsrHostGtk> osr_host_{};
     bool context_initialized_ = false;
 
