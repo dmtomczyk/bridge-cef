@@ -1,5 +1,7 @@
 #include "cef_app_host.h"
 
+#include <filesystem>
+
 #if defined(CEF_X11)
 #include <X11/Xlib.h>
 #endif
@@ -29,7 +31,8 @@ NO_STACK_PROTECTOR
 int main(int argc, char* argv[]) {
     CefMainArgs main_args(argc, argv);
 
-    const int exit_code = CefExecuteProcess(main_args, nullptr, nullptr);
+    CefRefPtr<CefAppHost> app(new CefAppHost);
+    const int exit_code = CefExecuteProcess(main_args, app.get(), nullptr);
     if (exit_code >= 0) {
         return exit_code;
     }
@@ -46,11 +49,14 @@ int main(int argc, char* argv[]) {
 #if !defined(CEF_USE_SANDBOX)
     settings.no_sandbox = true;
 #endif
+    const std::filesystem::path root_cache = std::filesystem::path("/tmp") / "bridge-engine-cef-proof-cache";
+    std::filesystem::create_directories(root_cache);
+    CefString(&settings.root_cache_path) = root_cache.string();
+    CefString(&settings.cache_path) = root_cache.string();
     if (command_line->HasSwitch("use-osr")) {
         settings.windowless_rendering_enabled = true;
     }
 
-    CefRefPtr<CefAppHost> app(new CefAppHost);
     if (!CefInitialize(main_args, settings, app.get(), nullptr)) {
         return CefGetExitCode();
     }

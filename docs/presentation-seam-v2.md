@@ -128,6 +128,16 @@ Current limitation:
 - a first local `--use-osr` runtime probe still crashed, so this path remains experimental
 - until that runtime path is hardened, the backend should still be treated as effectively `has_frame=false` for normal client expectations
 
+Additional runtime-hardening work has now started on the proof path:
+
+- child-process OSR-safe switch propagation
+- explicit proof cache/root-cache path
+- extra OSR render-handler callbacks (`GetRootScreenRect`, `GetScreenPoint`, `GetScreenInfo`)
+- proof-only hidden X11 parent window handle on Linux
+- safer first-frame shutdown probing
+
+Even with those changes, the current Linux proof still crashes before the first observed `OnPaint`, so the next work remains specifically **OSR startup stabilization**, not broader client/contract work.
+
 So the **contract, client preference path, and first producer wiring now exist**, but runtime frame production is still the next hardening step.
 
 ## Recommended migration order after this note

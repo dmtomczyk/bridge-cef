@@ -134,6 +134,37 @@ void CefBrowserHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
     frame->LoadURL(GetDataURI(ss.str(), "text/html"));
 }
 
+bool CefBrowserHandler::GetRootScreenRect(CefRefPtr<CefBrowser> browser, CefRect& rect) {
+    CEF_REQUIRE_UI_THREAD();
+    GetViewRect(browser, rect);
+    return true;
+}
+
+bool CefBrowserHandler::GetScreenPoint(CefRefPtr<CefBrowser> browser,
+                                       int viewX,
+                                       int viewY,
+                                       int& screenX,
+                                       int& screenY) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    screenX = viewX;
+    screenY = viewY;
+    return true;
+}
+
+bool CefBrowserHandler::GetScreenInfo(CefRefPtr<CefBrowser> browser, CefScreenInfo& screen_info) {
+    CEF_REQUIRE_UI_THREAD();
+    CefRect rect;
+    GetViewRect(browser, rect);
+    screen_info.device_scale_factor = 1.0f;
+    screen_info.depth = 32;
+    screen_info.depth_per_component = 8;
+    screen_info.is_monochrome = false;
+    screen_info.rect = rect;
+    screen_info.available_rect = rect;
+    return true;
+}
+
 void CefBrowserHandler::GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) {
     CEF_REQUIRE_UI_THREAD();
     (void)browser;
@@ -158,15 +189,24 @@ void CefBrowserHandler::OnPaint(CefRefPtr<CefBrowser> browser,
                             width,
                             height,
                             width * static_cast<int>(sizeof(std::uint32_t)));
+    if (!saw_first_frame_) {
+        LOG(INFO) << "engine-cef osr first frame " << width << "x" << height;
+    }
     if (quit_after_first_frame_ && !saw_first_frame_) {
         saw_first_frame_ = true;
-        CefPostTask(TID_UI, base::BindOnce(&CefBrowserHandler::CloseAllBrowsers, this, true));
+        CefPostTask(TID_UI,
+                    base::BindOnce(&CefBrowserHandler::CloseAllBrowsers,
+                                   CefRefPtr<CefBrowserHandler>(this),
+                                   true));
     }
 }
 
 void CefBrowserHandler::CloseAllBrowsers(bool force_close) {
     if (!CefCurrentlyOn(TID_UI)) {
-        CefPostTask(TID_UI, base::BindOnce(&CefBrowserHandler::CloseAllBrowsers, this, force_close));
+        CefPostTask(TID_UI,
+                    base::BindOnce(&CefBrowserHandler::CloseAllBrowsers,
+                                   CefRefPtr<CefBrowserHandler>(this),
+                                   force_close));
         return;
     }
     for (const auto& browser : browser_list_) {

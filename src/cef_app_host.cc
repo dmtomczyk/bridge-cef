@@ -2,6 +2,10 @@
 
 #include <string>
 
+#if defined(CEF_X11)
+#include <X11/Xlib.h>
+#endif
+
 #include "include/cef_browser.h"
 #include "include/cef_command_line.h"
 #include "include/views/cef_browser_view.h"
@@ -10,6 +14,61 @@
 #include "cef_browser_handler.h"
 
 namespace {
+
+void ApplyOsrSafeSwitches(CefRefPtr<CefCommandLine> command_line) {
+    if (!command_line) {
+        return;
+    }
+    bool use_osr = command_line->HasSwitch("use-osr");
+    if (!use_osr) {
+        auto global = CefCommandLine::GetGlobalCommandLine();
+        use_osr = global && global->HasSwitch("use-osr");
+    }
+    if (!use_osr) {
+        return;
+    }
+    command_line->AppendSwitch("disable-gpu");
+    command_line->AppendSwitch("disable-gpu-compositing");
+    command_line->AppendSwitch("disable-surfaces");
+    command_line->AppendSwitch("disable-gpu-shader-disk-cache");
+    command_line->AppendSwitch("disable-background-networking");
+    command_line->AppendSwitch("disable-component-update");
+    command_line->AppendSwitch("disable-default-apps");
+    command_line->AppendSwitch("disable-extensions");
+    command_line->AppendSwitch("disable-sync");
+    command_line->AppendSwitch("metrics-recording-only");
+    command_line->AppendSwitch("no-first-run");
+    command_line->AppendSwitch("no-default-browser-check");
+    command_line->AppendSwitch("allow-pre-commit-input");
+    command_line->AppendSwitchWithValue("password-store", "basic");
+    command_line->AppendSwitchWithValue("use-angle", "swiftshader");
+}
+
+#if defined(CEF_X11)
+CefWindowHandle GetOsrParentWindowHandle() {
+    static Display* display = XOpenDisplay(nullptr);
+    static ::Window window = 0;
+    if (!display) {
+        return 0;
+    }
+    if (!window) {
+        const int screen = DefaultScreen(display);
+        const ::Window root = RootWindow(display, screen);
+        window = XCreateSimpleWindow(display,
+                                     root,
+                                     0,
+                                     0,
+                                     1,
+                                     1,
+                                     0,
+                                     BlackPixel(display, screen),
+                                     BlackPixel(display, screen));
+        XMapWindow(display, window);
+        XFlush(display);
+    }
+    return static_cast<CefWindowHandle>(window);
+}
+#endif
 
 class CefWindowDelegateImpl : public CefWindowDelegate {
 public:
@@ -81,6 +140,16 @@ private:
 
 }  // namespace
 
+void CefAppHost::OnBeforeCommandLineProcessing(const CefString& process_type,
+                                               CefRefPtr<CefCommandLine> command_line) {
+    (void)process_type;
+    ApplyOsrSafeSwitches(command_line);
+}
+
+void CefAppHost::OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_line) {
+    ApplyOsrSafeSwitches(command_line);
+}
+
 void CefAppHost::OnContextInitialized() {
     CEF_REQUIRE_UI_THREAD();
 
@@ -111,7 +180,13 @@ void CefAppHost::OnContextInitialized() {
     const bool use_views = !command_line->HasSwitch("use-native");
     if (use_osr) {
         CefWindowInfo window_info;
+#if defined(CEF_X11)
+        window_info.SetAsWindowless(GetOsrParentWindowHandle());
+#else
         window_info.SetAsWindowless(0);
+#endif
+        window_info.shared_texture_enabled = false;
+        window_info.external_begin_frame_enabled = false;
         window_info.runtime_style = runtime_style;
         CefBrowserHost::CreateBrowser(window_info, handler, url, browser_settings, nullptr, nullptr);
     } else if (use_views) {
