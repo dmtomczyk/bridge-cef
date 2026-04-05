@@ -7,6 +7,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ENGINE_CEF_ENABLE_CEF "Build against a local CEF binary distribution" OFF)
 
+enable_testing()
+
 add_library(engine_cef_core STATIC
   src/cef_backend.cc
   src/cef_backend.h
@@ -19,6 +21,11 @@ target_include_directories(engine_cef_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+add_executable(engine_cef_bridge_frame_contract_test tests/bridge_frame_contract_test.cpp)
+target_compile_features(engine_cef_bridge_frame_contract_test PRIVATE cxx_std_20)
+target_link_libraries(engine_cef_bridge_frame_contract_test PRIVATE engine_cef_core)
+add_test(NAME engine_cef_bridge_frame_contract_test COMMAND engine_cef_bridge_frame_contract_test)
 
 if(ENGINE_CEF_ENABLE_CEF)
   if(NOT DEFINED CEF_ROOT AND DEFINED ENV{CEF_ROOT})

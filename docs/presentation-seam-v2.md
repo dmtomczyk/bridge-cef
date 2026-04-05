@@ -146,6 +146,8 @@ That proof-side verification step now also works: the proof can confirm on first
 
 The verification path now runs through the integration bridge surface, not only the internal backend object, which means the proof is exercising the same frame-copy contract shape that the client-facing path consumes.
 
+There is now also a cheap regression guard for this contract in `tests/bridge_frame_contract_test.cpp`, which verifies in normal builds that a backend-observed frame updates the public bridge presentation state and can be copied back out through `copy_latest_frame(...)`.
+
 Important caveat:
 
 - upstream `cefclient` OSR still crashes in this environment
