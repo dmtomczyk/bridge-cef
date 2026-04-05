@@ -16,6 +16,7 @@ Early bootstrap, but already past the purely speculative stage:
 - supports basic manual clicking
 
 See:
+- `BUILD.md`
 - `docs/first-native-proof.md`
 - `docs/bootstrap-decision.md`
 - `docs/cef-distribution-bootstrap.md`
