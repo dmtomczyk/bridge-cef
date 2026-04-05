@@ -3,6 +3,12 @@
 #include <sstream>
 #include <string>
 
+#if defined(__linux__)
+#include <spawn.h>
+#include <unistd.h>
+extern char** environ;
+#endif
+
 #include "include/base/cef_callback.h"
 #include "include/cef_app.h"
 #include "include/cef_parser.h"
@@ -18,6 +24,34 @@ CefBrowserHandler* g_instance = nullptr;
 std::string GetDataURI(const std::string& data, const std::string& mime_type) {
     return "data:" + mime_type + ";base64," +
            CefURIEncode(CefBase64Encode(data.data(), data.size()), false).ToString();
+}
+
+bool TryOpenExternally(const std::string& url) {
+#if defined(__linux__)
+    if (url.empty()) {
+        return false;
+    }
+    pid_t pid = 0;
+    char* argv[] = {const_cast<char*>("xdg-open"), const_cast<char*>(url.c_str()), nullptr};
+    const int rc = posix_spawnp(&pid, "xdg-open", nullptr, nullptr, argv, environ);
+    return rc == 0;
+#else
+    (void)url;
+    return false;
+#endif
+}
+
+bool IsMeaningfulPopupTarget(const std::string& url) {
+    if (url.empty()) {
+        return false;
+    }
+    if (url == "about:blank") {
+        return false;
+    }
+    if (url.rfind("javascript:", 0) == 0) {
+        return false;
+    }
+    return true;
 }
 
 }  // namespace
@@ -73,6 +107,60 @@ void CefBrowserHandler::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefSt
     } else if (is_alloy_style_) {
         PlatformTitleChange(browser, title);
     }
+}
+
+bool CefBrowserHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
+                                      CefRefPtr<CefFrame> frame,
+                                      int popup_id,
+                                      const CefString& target_url,
+                                      const CefString& target_frame_name,
+                                      WindowOpenDisposition target_disposition,
+                                      bool user_gesture,
+                                      const CefPopupFeatures& popupFeatures,
+                                      CefWindowInfo& windowInfo,
+                                      CefRefPtr<CefClient>& client,
+                                      CefBrowserSettings& settings,
+                                      CefRefPtr<CefDictionaryValue>& extra_info,
+                                      bool* no_javascript_access) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)popup_id;
+    (void)target_frame_name;
+    (void)target_disposition;
+    (void)user_gesture;
+    (void)popupFeatures;
+    (void)windowInfo;
+    (void)client;
+    (void)settings;
+    (void)extra_info;
+    (void)no_javascript_access;
+
+    if (!use_osr_) {
+        return false;
+    }
+
+    const std::string url = target_url.ToString();
+    if (!IsMeaningfulPopupTarget(url)) {
+        LOG(WARNING) << "engine-cef runtime-host blocked non-meaningful popup target: "
+                     << (url.empty() ? std::string("<empty>") : url);
+        return true;
+    }
+
+    if (frame && frame->IsValid()) {
+        LOG(WARNING) << "engine-cef runtime-host popup redirected into current window: " << url;
+        frame->LoadURL(url);
+        return true;
+    }
+    if (browser && browser->GetMainFrame()) {
+        LOG(WARNING) << "engine-cef runtime-host popup redirected into current main frame: " << url;
+        browser->GetMainFrame()->LoadURL(url);
+        return true;
+    }
+    if (TryOpenExternally(url)) {
+        LOG(WARNING) << "engine-cef runtime-host popup fell back to external handoff: " << url;
+        return true;
+    }
+    LOG(WARNING) << "engine-cef runtime-host blocked popup after failing in-window + external handling: " << url;
+    return true;
 }
 
 void CefBrowserHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
