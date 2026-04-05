@@ -67,6 +67,12 @@ private:
     void FocusAddressField();
     void BlurAddressField();
     bool NavigateAddressBuffer();
+    CefRefPtr<CefFrame> ActiveFrame() const;
+    void AddressSelectAll();
+    bool AddressHasSelection() const;
+    void AddressCopySelection();
+    void AddressCutSelection();
+    void AddressPasteClipboard();
 #endif
 
     int width_ = 1280;

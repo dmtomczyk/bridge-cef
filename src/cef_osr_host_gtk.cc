@@ -539,6 +539,19 @@ void CefOsrHostGtk::QueueDeferredResizeSync() {
     g_idle_add(&CefOsrHostGtk::DeferredResizeIdle, this);
 }
 
+CefRefPtr<CefFrame> CefOsrHostGtk::ActiveFrame() const {
+    if (browser_ == nullptr) {
+        return nullptr;
+    }
+    if (auto focused = browser_->GetFocusedFrame(); focused && focused->IsValid()) {
+        return focused;
+    }
+    if (auto main = browser_->GetMainFrame(); main && main->IsValid()) {
+        return main;
+    }
+    return nullptr;
+}
+
 void CefOsrHostGtk::FocusAddressField() {
     address_focused_ = true;
     address_edit_buffer_ = current_url_;
@@ -586,6 +599,68 @@ bool CefOsrHostGtk::NavigateAddressBuffer() {
 #endif
     browser_->GetHost()->SetFocus(true);
     return true;
+}
+
+void CefOsrHostGtk::AddressSelectAll() {
+    address_replace_on_type_ = true;
+#if defined(CEF_X11)
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
+bool CefOsrHostGtk::AddressHasSelection() const {
+    return address_focused_ && address_replace_on_type_ && !address_edit_buffer_.empty();
+}
+
+void CefOsrHostGtk::AddressCopySelection() {
+#if defined(CEF_X11)
+    if (!AddressHasSelection()) {
+        return;
+    }
+    GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (clipboard != nullptr) {
+        gtk_clipboard_set_text(clipboard, address_edit_buffer_.c_str(), -1);
+    }
+#endif
+}
+
+void CefOsrHostGtk::AddressCutSelection() {
+#if defined(CEF_X11)
+    if (!AddressHasSelection()) {
+        return;
+    }
+    AddressCopySelection();
+    address_edit_buffer_.clear();
+    address_replace_on_type_ = false;
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
+void CefOsrHostGtk::AddressPasteClipboard() {
+#if defined(CEF_X11)
+    GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (clipboard == nullptr) {
+        return;
+    }
+    gchar* clipboard_text = gtk_clipboard_wait_for_text(clipboard);
+    if (clipboard_text == nullptr) {
+        return;
+    }
+    if (address_replace_on_type_) {
+        address_edit_buffer_ = clipboard_text;
+        address_replace_on_type_ = false;
+    } else {
+        address_edit_buffer_ += clipboard_text;
+    }
+    g_free(clipboard_text);
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
 }
 
 bool CefOsrHostGtk::HandleChromeClick(int x, int y) {
@@ -780,6 +855,28 @@ int CefOsrHostGtk::HandleKey(GdkEventKey* event, bool key_up) {
         if (key_up) {
             return 1;
         }
+        if (control_down && !alt_down) {
+            switch (event->keyval) {
+                case GDK_KEY_a:
+                case GDK_KEY_A:
+                    AddressSelectAll();
+                    return 1;
+                case GDK_KEY_c:
+                case GDK_KEY_C:
+                    AddressCopySelection();
+                    return 1;
+                case GDK_KEY_x:
+                case GDK_KEY_X:
+                    AddressCutSelection();
+                    return 1;
+                case GDK_KEY_v:
+                case GDK_KEY_V:
+                    AddressPasteClipboard();
+                    return 1;
+                default:
+                    break;
+            }
+        }
         switch (event->keyval) {
             case GDK_KEY_Escape:
                 BlurAddressField();
@@ -825,6 +922,39 @@ int CefOsrHostGtk::HandleKey(GdkEventKey* event, bool key_up) {
             return 1;
         }
         return 1;
+    }
+
+    if (!key_up && control_down && !alt_down) {
+        if (auto frame = ActiveFrame()) {
+            switch (event->keyval) {
+                case GDK_KEY_c:
+                case GDK_KEY_C:
+                    frame->Copy();
+                    return 1;
+                case GDK_KEY_x:
+                case GDK_KEY_X:
+                    frame->Cut();
+                    return 1;
+                case GDK_KEY_v:
+                case GDK_KEY_V:
+                    frame->Paste();
+                    return 1;
+                case GDK_KEY_a:
+                case GDK_KEY_A:
+                    frame->SelectAll();
+                    return 1;
+                case GDK_KEY_z:
+                case GDK_KEY_Z:
+                    frame->Undo();
+                    return 1;
+                case GDK_KEY_y:
+                case GDK_KEY_Y:
+                    frame->Redo();
+                    return 1;
+                default:
+                    break;
+            }
+        }
     }
 
     CefKeyEvent key_event;
