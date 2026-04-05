@@ -61,6 +61,7 @@ This does **not** mean Linux OSR is fully solved in general. Upstream `cefclient
 
 - our proof path now has a viable first-frame recipe
 - that proof path can also verify successful presentation-v2 frame copy on first paint
+- the working Linux OSR bootstrap has now been extracted into a reusable `engine_cef_runtime_host` layer instead of living only in the proof `main()`
 - upstream/Linux OSR remains fragile in this environment family
 - the sample-parity work was still worth doing because it separated proof-host issues from broader upstream runtime issues
 

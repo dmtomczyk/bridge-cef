@@ -148,6 +148,8 @@ The verification path now runs through the integration bridge surface, not only 
 
 There is now also a cheap regression guard for this contract in `tests/bridge_frame_contract_test.cpp`, which verifies in normal builds that a backend-observed frame updates the public bridge presentation state and can be copied back out through `copy_latest_frame(...)`.
 
+The working Linux proof bootstrap for that path is no longer trapped inside the proof executable; it now lives in a reusable `engine_cef_runtime_host` layer that the proof links against.
+
 Important caveat:
 
 - upstream `cefclient` OSR still crashes in this environment
