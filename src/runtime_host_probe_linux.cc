@@ -4,27 +4,22 @@
 #include <string_view>
 
 #include "cef_runtime_entry.h"
-#include "engine_cef/integration_bridge.h"
 
 namespace {
 
-class FirstFrameObserver final : public bridge::cef::IIntegrationBridgeObserver {
+class FirstFrameObserver final : public ICefRuntimeObserver {
 public:
-    void on_snapshot_changed(const bridge::cef::BackendSnapshot& snapshot) override {
-        if (saw_first_frame_ || !snapshot.presentation.has_frame) {
+    void on_runtime_status_changed(const CefRuntimeStatus& status) override {
+        if (status.phase != CefRuntimePhase::first_frame_ready || !status.last_snapshot.presentation.has_frame) {
             return;
         }
-        saw_first_frame_ = true;
         std::fprintf(stderr,
                      "engine-cef runtime-host probe observed first frame %dx%d generation=%llu\n",
-                     snapshot.presentation.width,
-                     snapshot.presentation.height,
-                     static_cast<unsigned long long>(snapshot.presentation.frame_generation));
+                     status.last_snapshot.presentation.width,
+                     status.last_snapshot.presentation.height,
+                     static_cast<unsigned long long>(status.last_snapshot.presentation.frame_generation));
         CefRuntimeHost::RequestQuit();
     }
-
-private:
-    bool saw_first_frame_ = false;
 };
 
 std::string ParseUrl(int argc, char* argv[]) {
@@ -48,7 +43,6 @@ int main(int argc, char* argv[]) {
     config.runner.use_osr = true;
 
     CefRuntimeHost host(config);
-    auto bridge = host.bridge();
-    bridge->set_observer(std::make_shared<FirstFrameObserver>());
+    host.set_runtime_observer(std::make_shared<FirstFrameObserver>());
     return host.Run(argc, argv);
 }

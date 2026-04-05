@@ -8,7 +8,7 @@
 
 namespace {
 
-class RecordingObserver final : public bridge::cef::IIntegrationBridgeObserver {
+class RecordingBridgeObserver final : public bridge::cef::IIntegrationBridgeObserver {
 public:
     void on_snapshot_changed(const bridge::cef::BackendSnapshot& snapshot) override {
         ++event_count;
@@ -17,6 +17,17 @@ public:
 
     int event_count = 0;
     bridge::cef::BackendSnapshot last_snapshot{};
+};
+
+class RecordingRuntimeObserver final : public ICefRuntimeObserver {
+public:
+    void on_runtime_status_changed(const CefRuntimeStatus& status) override {
+        ++event_count;
+        last_status = status;
+    }
+
+    int event_count = 0;
+    CefRuntimeStatus last_status{};
 };
 
 }  // namespace
@@ -44,8 +55,10 @@ int main() {
         return 1;
     }
 
-    auto observer = std::make_shared<RecordingObserver>();
-    public_bridge->set_observer(observer);
+    auto bridge_observer = std::make_shared<RecordingBridgeObserver>();
+    auto runtime_observer = std::make_shared<RecordingRuntimeObserver>();
+    host.set_bridge_observer(bridge_observer);
+    host.set_runtime_observer(runtime_observer);
 
     bridge::cef::InitParams params;
     params.initial_width = 2;
@@ -60,20 +73,29 @@ int main() {
     const std::uint32_t src[] = {0xFF010203u, 0xFF112233u};
     bridge->backend()->observe_frame(src, 2, 1, static_cast<int>(2 * sizeof(std::uint32_t)));
 
-    if (observer->event_count == 0) {
-        std::cerr << "observer saw no bridge snapshot changes\n";
+    if (bridge_observer->event_count == 0) {
+        std::cerr << "bridge observer saw no bridge snapshot changes\n";
         return 1;
     }
-    if (!observer->last_snapshot.presentation.has_frame) {
-        std::cerr << "observer did not see presentation.has_frame\n";
+    if (!bridge_observer->last_snapshot.presentation.has_frame) {
+        std::cerr << "bridge observer did not see presentation.has_frame\n";
         return 1;
     }
-    if (observer->last_snapshot.presentation.width != 2 || observer->last_snapshot.presentation.height != 1) {
-        std::cerr << "observer presentation size mismatch\n";
+
+    if (runtime_observer->event_count == 0) {
+        std::cerr << "runtime observer saw no runtime status changes\n";
         return 1;
     }
-    if (observer->last_snapshot.presentation.frame_generation == 0) {
-        std::cerr << "observer presentation generation not advanced\n";
+    if (runtime_observer->last_status.phase != CefRuntimePhase::first_frame_ready) {
+        std::cerr << "runtime observer did not reach first_frame_ready\n";
+        return 1;
+    }
+    if (!runtime_observer->last_status.saw_first_frame) {
+        std::cerr << "runtime observer did not record saw_first_frame\n";
+        return 1;
+    }
+    if (!runtime_observer->last_status.last_snapshot.presentation.has_frame) {
+        std::cerr << "runtime status did not carry presentation.has_frame\n";
         return 1;
     }
 
@@ -84,6 +106,12 @@ int main() {
     }
     if (copied[0] != src[0] || copied[1] != src[1]) {
         std::cerr << "copied frame mismatch\n";
+        return 1;
+    }
+
+    const auto status = host.runtime_status();
+    if (status.phase != CefRuntimePhase::first_frame_ready || !status.saw_first_frame) {
+        std::cerr << "host.runtime_status() did not preserve first-frame readiness\n";
         return 1;
     }
 

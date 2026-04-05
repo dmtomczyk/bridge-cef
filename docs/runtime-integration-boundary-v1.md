@@ -24,17 +24,22 @@ This is still an internal `engine-cef` seam, not yet a frozen cross-repo public 
 
 ## 2. What should be observable?
 
-For the first non-proof caller, the observable surface should be the existing integration bridge.
+For the first non-proof caller, the observable surface should be:
+
+- the existing integration bridge for snapshot/presentation data
+- a tiny host-owned runtime status surface for phase/readiness
 
 Near-term rule:
 
 - the caller can obtain the host bridge from `CefRuntimeHost`
-- the caller can attach an `IIntegrationBridgeObserver`
+- the caller can attach a bridge observer through `CefRuntimeHost`
+- the caller can also attach a small runtime observer through `CefRuntimeHost`
 - runtime readiness should be treated as **"first useful presentation snapshot"**, not as an abstract startup-complete event
 
 In practice, the first readiness milestone is:
 
-- `snapshot.presentation.has_frame == true`
+- `status.phase == CefRuntimePhase::first_frame_ready`
+- which corresponds to `status.last_snapshot.presentation.has_frame == true`
 
 That is the first useful moment for the current CEF path.
 
