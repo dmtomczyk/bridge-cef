@@ -119,7 +119,9 @@ int CefRuntimeHost::Run(int argc, char* argv[]) const {
         state->status.last_exit_code = exit_code;
         state->status.phase = (exit_code == 0) ? CefRuntimePhase::stopped : CefRuntimePhase::failed;
         if (exit_code != 0) {
-            state->status.last_error = "engine-cef runtime exited with non-zero code";
+            state->status.last_error = app_->last_runtime_error().empty()
+                                           ? "engine-cef runtime exited with non-zero code"
+                                           : app_->last_runtime_error();
         }
         runtime_observer = state->runtime_observer;
         status = state->status;

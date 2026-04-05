@@ -29,16 +29,20 @@ public:
     void OnContextInitialized() override;
     CefRefPtr<CefClient> GetDefaultClient() override;
 
-    void CreateInitialBrowser();
+    bool CreateInitialBrowser();
 
     void set_launch_config(const CefLaunchConfig& config) { launch_config_ = config; }
     const CefLaunchConfig& launch_config() const { return launch_config_; }
+    const std::string& last_runtime_error() const { return last_runtime_error_; }
 
     bridge::cef::CefBackend::Ptr backend() const { return bridge_->backend(); }
     std::shared_ptr<bridge::cef::IIntegrationBridge> bridge() const { return bridge_; }
 
+    void set_runtime_error(std::string error) { last_runtime_error_ = std::move(error); }
+
 private:
     CefLaunchConfig launch_config_{};
+    std::string last_runtime_error_;
     bridge::cef::CefIntegrationBridge::Ptr bridge_ = std::make_shared<bridge::cef::CefIntegrationBridge>();
     std::unique_ptr<CefOsrHostGtk> osr_host_{};
     bool context_initialized_ = false;

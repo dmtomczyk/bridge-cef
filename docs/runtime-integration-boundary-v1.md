@@ -112,6 +112,10 @@ For now, the runtime boundary should be:
 
 **caller owns `CefRuntimeHost`; caller observes readiness through the bridge; first frame is readiness.**
 
+On failure, `CefRuntimeStatus.last_error` should carry the most specific startup/runtime error the host has, not only a generic non-zero-exit message.
+
+A good runtime-host regression test for this phase should exercise the real sequence `running -> first_frame_ready -> stopped` through the non-proof probe path instead of relying only on synthetic status injection.
+
 That is small, true, and aligned with the code we already have.
 
 A first narrow non-proof caller path can now be expressed as a tiny host-owned probe: construct `CefRuntimeHost`, attach a bridge observer, and call `CefRuntimeHost::RequestQuit()` when the observer sees `presentation.has_frame=true`.

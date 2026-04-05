@@ -132,11 +132,13 @@ void CefAppHost::OnContextInitialized() {
     context_initialized_ = true;
 }
 
-void CefAppHost::CreateInitialBrowser() {
+bool CefAppHost::CreateInitialBrowser() {
     CEF_REQUIRE_UI_THREAD();
+    last_runtime_error_.clear();
     if (!context_initialized_) {
-        LOG(ERROR) << "CreateInitialBrowser called before OnContextInitialized";
-        return;
+        last_runtime_error_ = "CreateInitialBrowser called before OnContextInitialized";
+        LOG(ERROR) << last_runtime_error_;
+        return false;
     }
 
     const bool use_alloy_style = launch_config_.use_alloy_style;
@@ -155,15 +157,20 @@ void CefAppHost::CreateInitialBrowser() {
     params.initial_url = url;
     params.use_alloy_style = use_alloy_style;
     std::string init_error;
-    bridge_->initialize(params, &init_error);
+    if (!bridge_->initialize(params, &init_error)) {
+        last_runtime_error_ = init_error.empty() ? "engine-cef bridge initialize failed" : init_error;
+        LOG(ERROR) << last_runtime_error_;
+        return false;
+    }
 
     if (use_osr) {
         if (!osr_host_) {
             osr_host_ = std::make_unique<CefOsrHostGtk>();
         }
         if (!osr_host_->Initialize()) {
-            LOG(ERROR) << "Failed to initialize GTK/X11 OSR host";
-            return;
+            last_runtime_error_ = "Failed to initialize GTK/X11 OSR host";
+            LOG(ERROR) << last_runtime_error_;
+            return false;
         }
     }
 
@@ -182,18 +189,36 @@ void CefAppHost::CreateInitialBrowser() {
         window_info.shared_texture_enabled = false;
         window_info.external_begin_frame_enabled = false;
         window_info.runtime_style = runtime_style;
-        CefBrowserHost::CreateBrowser(window_info, handler, url, browser_settings, nullptr, nullptr);
-    } else if (use_views) {
+        if (!CefBrowserHost::CreateBrowser(window_info, handler, url, browser_settings, nullptr, nullptr)) {
+            last_runtime_error_ = "CefBrowserHost::CreateBrowser failed for OSR browser";
+            LOG(ERROR) << last_runtime_error_;
+            return false;
+        }
+        return true;
+    }
+
+    if (use_views) {
         CefRefPtr<CefBrowserView> browser_view = CefBrowserView::CreateBrowserView(
             handler, url, browser_settings, nullptr, nullptr,
             new CefBrowserViewDelegateImpl(runtime_style));
+        if (!browser_view) {
+            last_runtime_error_ = "CefBrowserView::CreateBrowserView returned null";
+            LOG(ERROR) << last_runtime_error_;
+            return false;
+        }
         CefWindow::CreateTopLevelWindow(
             new CefWindowDelegateImpl(browser_view, runtime_style, CEF_SHOW_STATE_NORMAL));
-    } else {
-        CefWindowInfo window_info;
-        window_info.runtime_style = runtime_style;
-        CefBrowserHost::CreateBrowser(window_info, handler, url, browser_settings, nullptr, nullptr);
+        return true;
     }
+
+    CefWindowInfo window_info;
+    window_info.runtime_style = runtime_style;
+    if (!CefBrowserHost::CreateBrowser(window_info, handler, url, browser_settings, nullptr, nullptr)) {
+        last_runtime_error_ = "CefBrowserHost::CreateBrowser failed for native browser";
+        LOG(ERROR) << last_runtime_error_;
+        return false;
+    }
+    return true;
 }
 
 CefRefPtr<CefClient> CefAppHost::GetDefaultClient() {

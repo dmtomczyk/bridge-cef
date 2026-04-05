@@ -82,7 +82,11 @@ int CefLinuxMainRunner::Run(int argc, char* argv[], CefRefPtr<CefAppHost> app, c
     XSetIOErrorHandler(XIOErrorHandlerImpl);
 #endif
 
-    app->CreateInitialBrowser();
+    if (!app->CreateInitialBrowser()) {
+        CefShutdown();
+        return 1;
+    }
+
     CefRunMessageLoop();
     CefShutdown();
     return 0;
