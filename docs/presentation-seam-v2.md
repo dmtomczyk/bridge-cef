@@ -154,6 +154,8 @@ That runtime host is also now configured through explicit launch/runtime structs
 
 There is now also a tiny runtime-entry helper (`RunCefRuntimeEntry(...)`) that packages the reusable host behind a single call for future non-proof callers.
 
+On top of that helper, `engine-cef` now also has a small object-shaped lifecycle wrapper (`CefRuntimeHost`) that owns config and exposes `Run(...)` plus a minimal `RequestQuit()` hook.
+
 Important caveat:
 
 - upstream `cefclient` OSR still crashes in this environment
