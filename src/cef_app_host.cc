@@ -172,6 +172,7 @@ bool CefAppHost::CreateInitialBrowser() {
             LOG(ERROR) << last_runtime_error_;
             return false;
         }
+        osr_host_->SetProfileLabel(launch_config_.profile_label);
     }
 
     CefRefPtr<CefBrowserHandler> handler(new CefBrowserHandler(use_alloy_style,

@@ -26,6 +26,7 @@ public:
     bool Initialize();
     bool PresentFrame(const std::uint32_t* argb, int width, int height, int stride_bytes);
     void SetWindowTitle(const std::string& title);
+    void SetProfileLabel(const std::string& profile_label);
     void SetCurrentUrl(const std::string& url);
     void SetLoadingState(bool is_loading, bool can_go_back, bool can_go_forward);
     void SetLoadError(const std::string& error_text, const std::string& failed_url);
@@ -84,6 +85,7 @@ private:
     GdkPixbuf* brand_overlay_pixbuf_ = nullptr;
 #endif
     std::string window_title_{};
+    std::string profile_label_{};
     std::string current_url_{};
     std::string address_edit_buffer_{};
     std::string load_error_text_{};

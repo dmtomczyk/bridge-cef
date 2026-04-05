@@ -85,6 +85,11 @@ std::string NormalizeTypedUrl(const std::string& raw) {
     return std::string("https://") + text;
 }
 
+std::string EffectiveWindowTitle(const std::string& page_title, const std::string& profile_label) {
+    const std::string bridge_suffix = profile_label.empty() ? "BRIDGE" : "BRIDGE [" + profile_label + "]";
+    return page_title.empty() ? bridge_suffix + " — CEF Runtime Host" : page_title + " — " + bridge_suffix;
+}
+
 }  // namespace
 
 CefOsrHostGtk::CefOsrHostGtk() = default;
@@ -460,13 +465,31 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
         status_g = 0.74;
         status_b = 0.25;
     }
+
+    double status_x = static_cast<double>(draw_width) - 114.0;
+    if (!profile_label_.empty()) {
+        const std::string profile_text = EllipsizeMiddle(profile_label_, 18);
+        cairo_set_source_rgba(cr, 0.16, 0.20, 0.27, 0.98);
+        cairo_rectangle(cr, draw_width - 236.0, 11.0, 108.0, 26.0);
+        cairo_fill(cr);
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, kChromeBorder);
+        cairo_rectangle(cr, draw_width - 236.0, 11.0, 108.0, 26.0);
+        cairo_stroke(cr);
+        cairo_set_source_rgba(cr, 0.88, 0.92, 0.98, 0.92);
+        cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 11.0);
+        cairo_move_to(cr, draw_width - 226.0, 28.0);
+        cairo_show_text(cr, profile_text.c_str());
+        status_x = static_cast<double>(draw_width) - 114.0;
+    }
+
     cairo_set_source_rgb(cr, status_r, status_g, status_b);
-    cairo_arc(cr, draw_width - 114.0, 24.0, 4.0, 0.0, 6.28318530718);
+    cairo_arc(cr, status_x, 24.0, 4.0, 0.0, 6.28318530718);
     cairo_fill(cr);
     cairo_set_source_rgba(cr, 0.88, 0.92, 0.98, 0.86);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 11.0);
-    cairo_move_to(cr, draw_width - 104.0, 28.0);
+    cairo_move_to(cr, status_x + 10.0, 28.0);
     cairo_show_text(cr, status_label);
 
     cairo_set_source_rgba(cr, 0.80, 0.85, 0.92, 0.78);
@@ -876,6 +899,19 @@ void CefOsrHostGtk::NotifyBrowserCreated(CefRefPtr<CefBrowser> browser) {
     QueueDeferredResizeSync();
 }
 
+void CefOsrHostGtk::SetProfileLabel(const std::string& profile_label) {
+    profile_label_ = profile_label;
+#if defined(CEF_X11)
+    if (window_ != nullptr) {
+        const std::string effective = EffectiveWindowTitle(window_title_, profile_label_);
+        gtk_window_set_title(GTK_WINDOW(window_), effective.c_str());
+    }
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
 void CefOsrHostGtk::SetCurrentUrl(const std::string& url) {
     current_url_ = url;
     if (!address_focused_) {
@@ -920,7 +956,7 @@ void CefOsrHostGtk::SetWindowTitle(const std::string& title) {
     if (window_ == nullptr) {
         return;
     }
-    const std::string effective = title.empty() ? "BRIDGE — CEF Runtime Host" : title + " — BRIDGE";
+    const std::string effective = EffectiveWindowTitle(title, profile_label_);
     gtk_window_set_title(GTK_WINDOW(window_), effective.c_str());
     if (drawing_area_ != nullptr) {
         gtk_widget_queue_draw(drawing_area_);

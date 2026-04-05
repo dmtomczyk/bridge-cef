@@ -55,8 +55,10 @@ int CefLinuxMainRunner::Run(int argc, char* argv[], CefRefPtr<CefAppHost> app, c
                                                      std::to_string(::getpid())))
                                                  : std::filesystem::path(options.cache_root);
     std::filesystem::create_directories(root_cache);
+    LOG(WARNING) << "CefLinuxMainRunner: runtime profile root=" << root_cache.string();
     CefString(&settings.root_cache_path) = root_cache.string();
     CefString(&settings.cache_path) = root_cache.string();
+    settings.persist_session_cookies = 1;
     if (options.use_osr) {
         settings.windowless_rendering_enabled = true;
     }

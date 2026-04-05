@@ -10,6 +10,7 @@
 
 struct CefLaunchConfig {
     std::string initial_url = "https://example.com";
+    std::string profile_label;
     bool use_osr = false;
     bool use_alloy_style = true;
     bool use_native = false;
