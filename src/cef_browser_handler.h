@@ -65,7 +65,9 @@ private:
     const bool is_alloy_style_;
     const bool use_osr_;
     const bool quit_after_first_frame_;
+    const bool verify_presentation_v2_;
     bool saw_first_frame_ = false;
+    bool verified_presentation_v2_ = false;
     bridge::cef::CefBackend::Ptr backend_;
     CefOsrHostGtk* osr_host_ = nullptr;
     using BrowserList = std::list<CefRefPtr<CefBrowser>>;
