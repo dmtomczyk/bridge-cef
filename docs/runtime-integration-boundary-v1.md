@@ -115,3 +115,5 @@ For now, the runtime boundary should be:
 That is small, true, and aligned with the code we already have.
 
 A first narrow non-proof caller path can now be expressed as a tiny host-owned probe: construct `CefRuntimeHost`, attach a bridge observer, and call `CefRuntimeHost::RequestQuit()` when the observer sees `presentation.has_frame=true`.
+
+The Linux GTK bootstrap has also been trimmed to stay closer to upstream `cefclient`: keep the X11 backend forcing, force Chromium/Ozone onto X11 for this Linux OSR path (`--ozone-platform=x11`), and let `CefInitialize()` run before `gtk_init()` in the reusable runner while applying `gdk_set_allowed_backends("x11")` immediately before `gtk_init()`. The OSR-safe switch set is now also driven by programmatic `launch_config.use_osr`, not only by proof-style CLI flags.

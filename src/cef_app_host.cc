@@ -16,11 +16,11 @@
 
 namespace {
 
-void ApplyOsrSafeSwitches(CefRefPtr<CefCommandLine> command_line) {
+void ApplyOsrSafeSwitches(CefRefPtr<CefCommandLine> command_line, bool force_use_osr) {
     if (!command_line) {
         return;
     }
-    bool use_osr = command_line->HasSwitch("use-osr");
+    bool use_osr = force_use_osr || command_line->HasSwitch("use-osr");
     if (!use_osr) {
         auto global = CefCommandLine::GetGlobalCommandLine();
         use_osr = global && global->HasSwitch("use-osr");
@@ -28,6 +28,7 @@ void ApplyOsrSafeSwitches(CefRefPtr<CefCommandLine> command_line) {
     if (!use_osr) {
         return;
     }
+    command_line->AppendSwitch("use-osr");
     command_line->AppendSwitch("disable-gpu");
     command_line->AppendSwitch("disable-gpu-compositing");
     command_line->AppendSwitch("disable-surfaces");
@@ -43,6 +44,7 @@ void ApplyOsrSafeSwitches(CefRefPtr<CefCommandLine> command_line) {
     command_line->AppendSwitch("allow-pre-commit-input");
     command_line->AppendSwitchWithValue("password-store", "basic");
     command_line->AppendSwitchWithValue("use-angle", "swiftshader");
+    command_line->AppendSwitchWithValue("ozone-platform", "x11");
 }
 
 class CefWindowDelegateImpl : public CefWindowDelegate {
@@ -118,11 +120,11 @@ private:
 void CefAppHost::OnBeforeCommandLineProcessing(const CefString& process_type,
                                                CefRefPtr<CefCommandLine> command_line) {
     (void)process_type;
-    ApplyOsrSafeSwitches(command_line);
+    ApplyOsrSafeSwitches(command_line, launch_config_.use_osr);
 }
 
 void CefAppHost::OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_line) {
-    ApplyOsrSafeSwitches(command_line);
+    ApplyOsrSafeSwitches(command_line, launch_config_.use_osr);
 }
 
 void CefAppHost::OnContextInitialized() {

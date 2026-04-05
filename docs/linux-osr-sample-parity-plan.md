@@ -55,6 +55,8 @@ With the current sample-parity slice in place, the `engine-cef` proof can now re
 - a GTK/X11-backed OSR host is used instead of the earlier hand-rolled hidden X11 window path
 - OSR browser creation happens after GTK/X11 host setup exists
 - GTK is forced onto the X11 backend for OSR (`GDK_BACKEND=x11` / `gdk_set_allowed_backends("x11")`)
+- the OSR-safe command-line set now also forces Chromium/Ozone onto X11 (`--ozone-platform=x11`) for this Linux proof/runtime-host path
+- the reusable runner now follows upstream more closely by letting `CefInitialize()` run before `gtk_init()` in the OSR bootstrap path, while applying `gdk_set_allowed_backends("x11")` immediately before `gtk_init()`
 - the proof uses `CefQuitMessageLoop()` for the first-frame exit helper instead of closing browsers inside that probe path
 
 This does **not** mean Linux OSR is fully solved in general. Upstream `cefclient` OSR still crashes in this environment, so the current result should be read as:

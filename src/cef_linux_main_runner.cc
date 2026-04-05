@@ -62,10 +62,18 @@ int CefLinuxMainRunner::Run(int argc, char* argv[], CefRefPtr<CefAppHost> app, c
     }
 
 #if defined(CEF_X11)
+    if (options.use_osr && options.force_x11_backend_for_osr) {
+        setenv("GDK_BACKEND", "x11", 1);
+    }
+#endif
+
+    if (!CefInitialize(main_args, settings, app.get(), nullptr)) {
+        return CefGetExitCode();
+    }
+
+#if defined(CEF_X11)
     if (options.use_osr) {
-        gtk_disable_setlocale();
         if (options.force_x11_backend_for_osr) {
-            setenv("GDK_BACKEND", "x11", 1);
             gdk_set_allowed_backends("x11");
         }
         gtk_init(&argc, &argv);
@@ -73,10 +81,6 @@ int CefLinuxMainRunner::Run(int argc, char* argv[], CefRefPtr<CefAppHost> app, c
     XSetErrorHandler(XErrorHandlerImpl);
     XSetIOErrorHandler(XIOErrorHandlerImpl);
 #endif
-
-    if (!CefInitialize(main_args, settings, app.get(), nullptr)) {
-        return CefGetExitCode();
-    }
 
     app->CreateInitialBrowser();
     CefRunMessageLoop();
