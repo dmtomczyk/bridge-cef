@@ -7,12 +7,38 @@
 
 namespace {
 
+const char* PhaseName(CefRuntimePhase phase) {
+    switch (phase) {
+        case CefRuntimePhase::idle:
+            return "idle";
+        case CefRuntimePhase::running:
+            return "running";
+        case CefRuntimePhase::first_frame_ready:
+            return "first_frame_ready";
+        case CefRuntimePhase::stopped:
+            return "stopped";
+        case CefRuntimePhase::failed:
+            return "failed";
+    }
+    return "unknown";
+}
+
 class FirstFrameObserver final : public ICefRuntimeObserver {
 public:
     void on_runtime_status_changed(const CefRuntimeStatus& status) override {
-        if (status.phase != CefRuntimePhase::first_frame_ready || !status.last_snapshot.presentation.has_frame) {
+        if (status.phase != last_phase_) {
+            std::fprintf(stderr,
+                         "engine-cef runtime-host probe status %s exit=%d saw_first_frame=%d\n",
+                         PhaseName(status.phase),
+                         status.last_exit_code,
+                         status.saw_first_frame ? 1 : 0);
+            last_phase_ = status.phase;
+        }
+        if (quit_requested_ || status.phase != CefRuntimePhase::first_frame_ready ||
+            !status.last_snapshot.presentation.has_frame) {
             return;
         }
+        quit_requested_ = true;
         std::fprintf(stderr,
                      "engine-cef runtime-host probe observed first frame %dx%d generation=%llu\n",
                      status.last_snapshot.presentation.width,
@@ -20,6 +46,10 @@ public:
                      static_cast<unsigned long long>(status.last_snapshot.presentation.frame_generation));
         CefRuntimeHost::RequestQuit();
     }
+
+private:
+    CefRuntimePhase last_phase_ = CefRuntimePhase::idle;
+    bool quit_requested_ = false;
 };
 
 std::string ParseUrl(int argc, char* argv[]) {

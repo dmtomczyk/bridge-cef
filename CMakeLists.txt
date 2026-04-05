@@ -98,6 +98,12 @@ if(ENGINE_CEF_ENABLE_CEF)
     RUNTIME_OUTPUT_DIRECTORY ${CEF_TARGET_OUT_DIR}
   )
 
+  add_executable(engine_cef_runtime_host_status_transition_test tests/runtime_host_status_transition_test.cpp)
+  target_compile_features(engine_cef_runtime_host_status_transition_test PRIVATE cxx_std_20)
+  target_compile_definitions(engine_cef_runtime_host_status_transition_test PRIVATE ENGINE_CEF_RUNTIME_HOST_PROBE_PATH="$<TARGET_FILE:engine_cef_runtime_host_probe>")
+  add_dependencies(engine_cef_runtime_host_status_transition_test engine_cef_runtime_host_probe)
+  add_test(NAME engine_cef_runtime_host_status_transition_test COMMAND engine_cef_runtime_host_status_transition_test)
+
   copy_files("engine_cef_proof" "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
   copy_files("engine_cef_proof" "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${CEF_TARGET_OUT_DIR}")
   copy_files("engine_cef_runtime_host_probe" "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
