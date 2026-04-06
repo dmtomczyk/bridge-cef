@@ -30,6 +30,8 @@ constexpr double kAddressX = 238.0;
 constexpr double kAddressY = 10.0;
 constexpr double kAddressHeight = 28.0;
 constexpr double kGoButtonWidth = 40.0;
+constexpr double kAddressTextInsetX = 12.0;
+constexpr int kAddressGlyphAdvance = 7;
 
 struct Rect {
     double x;
@@ -52,6 +54,19 @@ Rect AddressRect(int draw_width) {
 Rect GoButtonRect(int draw_width) {
     const Rect address = AddressRect(draw_width);
     return {address.x + address.w + 10.0, 11.0, kGoButtonWidth, 26.0};
+}
+
+double MeasureAddressTextWidth(std::string_view text) {
+    cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_A1, 1, 1);
+    cairo_t* cr = cairo_create(surface);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 12.0);
+    cairo_text_extents_t extents{};
+    const std::string owned(text);
+    cairo_text_extents(cr, owned.c_str(), &extents);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    return extents.x_advance;
 }
 
 std::string EllipsizeMiddle(const std::string& text, std::size_t max_chars) {
@@ -417,15 +432,17 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     cairo_stroke(cr);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 12.0);
+    const std::size_t address_visible_start = AddressVisibleStart(draw_width);
+    const std::size_t address_visible_chars = AddressMaxVisibleChars(draw_width);
     const std::string address_text = address_focused_
-                                         ? address_edit_buffer_
+                                         ? address_edit_buffer_.substr(address_visible_start, address_visible_chars)
                                          : (current_url_.empty() ? std::string("Address field") : EllipsizeMiddle(current_url_, 90));
     cairo_save(cr);
     cairo_rectangle(cr, address_x + 8.0, address_y + 4.0, address_w - 16.0, address_h - 8.0);
     cairo_clip(cr);
     cairo_text_extents_t extents{};
     cairo_text_extents(cr, address_text.c_str(), &extents);
-    if (address_focused_ && address_replace_on_type_ && !address_text.empty()) {
+    if (address_focused_ && address_replace_on_type_ && !address_edit_buffer_.empty()) {
         const double highlight_x = address_x + 10.0;
         const double highlight_y = address_y + 6.0;
         const double highlight_w = std::min(address_w - 20.0, extents.x_advance + 8.0);
@@ -437,10 +454,13 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     } else {
         cairo_set_source_rgba(cr, 0.93, 0.97, 1.0, 0.92);
     }
-    cairo_move_to(cr, address_x + 12.0, address_y + 18.0);
+    cairo_move_to(cr, address_x + kAddressTextInsetX, address_y + 18.0);
     cairo_show_text(cr, address_text.c_str());
     if (address_focused_ && !address_replace_on_type_) {
-        const double caret_x = std::min(address_x + address_w - 10.0, address_x + 12.0 + extents.x_advance + 1.0);
+        const std::size_t caret_offset = address_cursor_ >= address_visible_start ? address_cursor_ - address_visible_start : 0;
+        const double caret_advance = MeasureAddressTextWidth(std::string_view(address_text).substr(0, caret_offset));
+        const double caret_x = std::min(address_x + address_w - 10.0,
+                                        address_x + kAddressTextInsetX + caret_advance);
         cairo_set_source_rgba(cr, 0.92, 0.97, 1.0, 0.92);
         cairo_move_to(cr, caret_x, address_y + 7.0);
         cairo_line_to(cr, caret_x, address_y + address_h - 7.0);
@@ -552,10 +572,42 @@ CefRefPtr<CefFrame> CefOsrHostGtk::ActiveFrame() const {
     return nullptr;
 }
 
-void CefOsrHostGtk::FocusAddressField() {
+std::size_t CefOsrHostGtk::AddressMaxVisibleChars(int draw_width) const {
+    const Rect rect = AddressRect(draw_width);
+    const int usable_width = std::max(1, static_cast<int>(rect.w) - 20);
+    return static_cast<std::size_t>(std::max(1, usable_width / kAddressGlyphAdvance));
+}
+
+std::size_t CefOsrHostGtk::AddressVisibleStart(int draw_width) const {
+    const std::size_t max_chars = AddressMaxVisibleChars(draw_width);
+    return address_cursor_ <= max_chars ? 0 : address_cursor_ - max_chars;
+}
+
+std::size_t CefOsrHostGtk::AddressCursorFromPoint(int draw_width, int x) const {
+    const Rect rect = AddressRect(draw_width);
+    const int relative_x = std::max(0, x - static_cast<int>(rect.x + kAddressTextInsetX));
+    const std::size_t visible_start = AddressVisibleStart(draw_width);
+    const std::size_t visible_chars = AddressMaxVisibleChars(draw_width);
+    const std::string visible_text = address_edit_buffer_.substr(visible_start, visible_chars);
+
+    for (std::size_t i = 0; i <= visible_text.size(); ++i) {
+        const double advance = MeasureAddressTextWidth(std::string_view(visible_text).substr(0, i));
+        if (advance >= static_cast<double>(relative_x)) {
+            return std::min(address_edit_buffer_.size(), visible_start + i);
+        }
+    }
+    return std::min(address_edit_buffer_.size(), visible_start + visible_text.size());
+}
+
+void CefOsrHostGtk::FocusAddressField(bool select_all, std::size_t cursor) {
     address_focused_ = true;
     address_edit_buffer_ = current_url_;
-    address_replace_on_type_ = true;
+    address_replace_on_type_ = select_all;
+    if (cursor == std::string::npos) {
+        address_cursor_ = select_all ? address_edit_buffer_.size() : address_edit_buffer_.size();
+    } else {
+        address_cursor_ = std::min(cursor, address_edit_buffer_.size());
+    }
 #if defined(CEF_X11)
     if (drawing_area_ != nullptr) {
         gtk_widget_grab_focus(drawing_area_);
@@ -568,6 +620,7 @@ void CefOsrHostGtk::BlurAddressField() {
     address_focused_ = false;
     address_replace_on_type_ = false;
     address_edit_buffer_ = current_url_;
+    address_cursor_ = address_edit_buffer_.size();
 #if defined(CEF_X11)
     if (drawing_area_ != nullptr) {
         gtk_widget_queue_draw(drawing_area_);
@@ -585,6 +638,7 @@ bool CefOsrHostGtk::NavigateAddressBuffer() {
     }
     current_url_ = normalized;
     address_edit_buffer_ = normalized;
+    address_cursor_ = address_edit_buffer_.size();
     address_focused_ = false;
     address_replace_on_type_ = false;
     load_error_text_.clear();
@@ -603,6 +657,7 @@ bool CefOsrHostGtk::NavigateAddressBuffer() {
 
 void CefOsrHostGtk::AddressSelectAll() {
     address_replace_on_type_ = true;
+    address_cursor_ = address_edit_buffer_.size();
 #if defined(CEF_X11)
     if (drawing_area_ != nullptr) {
         gtk_widget_queue_draw(drawing_area_);
@@ -633,6 +688,7 @@ void CefOsrHostGtk::AddressCutSelection() {
     }
     AddressCopySelection();
     address_edit_buffer_.clear();
+    address_cursor_ = 0;
     address_replace_on_type_ = false;
     if (drawing_area_ != nullptr) {
         gtk_widget_queue_draw(drawing_area_);
@@ -652,9 +708,11 @@ void CefOsrHostGtk::AddressPasteClipboard() {
     }
     if (address_replace_on_type_) {
         address_edit_buffer_ = clipboard_text;
+        address_cursor_ = address_edit_buffer_.size();
         address_replace_on_type_ = false;
     } else {
-        address_edit_buffer_ += clipboard_text;
+        address_edit_buffer_.insert(address_cursor_, clipboard_text);
+        address_cursor_ += std::strlen(clipboard_text);
     }
     g_free(clipboard_text);
     if (drawing_area_ != nullptr) {
@@ -687,7 +745,10 @@ bool CefOsrHostGtk::HandleChromeClick(int x, int y) {
         return true;
     }
     if (Contains(AddressRect(draw_width), x, y)) {
-        FocusAddressField();
+        const bool was_focused = address_focused_;
+        const std::size_t cursor = was_focused ? AddressCursorFromPoint(draw_width, x)
+                                               : std::min(current_url_.size(), AddressCursorFromPoint(draw_width, x));
+        FocusAddressField(false, cursor);
         return true;
     }
     if (Contains(GoButtonRect(draw_width), x, y)) {
@@ -885,20 +946,63 @@ int CefOsrHostGtk::HandleKey(GdkEventKey* event, bool key_up) {
             case GDK_KEY_KP_Enter:
                 NavigateAddressBuffer();
                 return 1;
+            case GDK_KEY_Left:
+                if (address_replace_on_type_) {
+                    address_replace_on_type_ = false;
+                    address_cursor_ = 0;
+                } else if (address_cursor_ > 0) {
+                    --address_cursor_;
+                }
+                if (drawing_area_ != nullptr) {
+                    gtk_widget_queue_draw(drawing_area_);
+                }
+                return 1;
+            case GDK_KEY_Right:
+                if (address_replace_on_type_) {
+                    address_replace_on_type_ = false;
+                    address_cursor_ = address_edit_buffer_.size();
+                } else if (address_cursor_ < address_edit_buffer_.size()) {
+                    ++address_cursor_;
+                }
+                if (drawing_area_ != nullptr) {
+                    gtk_widget_queue_draw(drawing_area_);
+                }
+                return 1;
+            case GDK_KEY_Home:
+                address_replace_on_type_ = false;
+                address_cursor_ = 0;
+                if (drawing_area_ != nullptr) {
+                    gtk_widget_queue_draw(drawing_area_);
+                }
+                return 1;
+            case GDK_KEY_End:
+                address_replace_on_type_ = false;
+                address_cursor_ = address_edit_buffer_.size();
+                if (drawing_area_ != nullptr) {
+                    gtk_widget_queue_draw(drawing_area_);
+                }
+                return 1;
             case GDK_KEY_BackSpace:
                 if (address_replace_on_type_) {
                     address_edit_buffer_.clear();
+                    address_cursor_ = 0;
                     address_replace_on_type_ = false;
-                } else if (!address_edit_buffer_.empty()) {
-                    address_edit_buffer_.pop_back();
+                } else if (address_cursor_ > 0 && !address_edit_buffer_.empty()) {
+                    address_edit_buffer_.erase(address_cursor_ - 1, 1);
+                    --address_cursor_;
                 }
                 if (drawing_area_ != nullptr) {
                     gtk_widget_queue_draw(drawing_area_);
                 }
                 return 1;
             case GDK_KEY_Delete:
-                address_edit_buffer_.clear();
-                address_replace_on_type_ = false;
+                if (address_replace_on_type_) {
+                    address_edit_buffer_.clear();
+                    address_cursor_ = 0;
+                    address_replace_on_type_ = false;
+                } else if (address_cursor_ < address_edit_buffer_.size()) {
+                    address_edit_buffer_.erase(address_cursor_, 1);
+                }
                 if (drawing_area_ != nullptr) {
                     gtk_widget_queue_draw(drawing_area_);
                 }
@@ -912,9 +1016,11 @@ int CefOsrHostGtk::HandleKey(GdkEventKey* event, bool key_up) {
             std::string text(utf8_char, utf8_len);
             if (address_replace_on_type_) {
                 address_edit_buffer_ = text;
+                address_cursor_ = address_edit_buffer_.size();
                 address_replace_on_type_ = false;
             } else {
-                address_edit_buffer_ += text;
+                address_edit_buffer_.insert(address_cursor_, text);
+                address_cursor_ += text.size();
             }
             if (drawing_area_ != nullptr) {
                 gtk_widget_queue_draw(drawing_area_);
@@ -1046,6 +1152,7 @@ void CefOsrHostGtk::SetCurrentUrl(const std::string& url) {
     current_url_ = url;
     if (!address_focused_) {
         address_edit_buffer_ = current_url_;
+        address_cursor_ = address_edit_buffer_.size();
     }
 #if defined(CEF_X11)
     if (drawing_area_ != nullptr) {

@@ -64,7 +64,7 @@ private:
     bool SyncViewSizeFromAllocation(bool notify_browser, int fallback_width = 0, int fallback_height = 0);
     void QueueDeferredResizeSync();
     bool HandleChromeClick(int x, int y);
-    void FocusAddressField();
+    void FocusAddressField(bool select_all = true, std::size_t cursor = std::string::npos);
     void BlurAddressField();
     bool NavigateAddressBuffer();
     CefRefPtr<CefFrame> ActiveFrame() const;
@@ -73,6 +73,9 @@ private:
     void AddressCopySelection();
     void AddressCutSelection();
     void AddressPasteClipboard();
+    std::size_t AddressMaxVisibleChars(int draw_width) const;
+    std::size_t AddressVisibleStart(int draw_width) const;
+    std::size_t AddressCursorFromPoint(int draw_width, int x) const;
 #endif
 
     int width_ = 1280;
@@ -94,6 +97,7 @@ private:
     std::string profile_label_{};
     std::string current_url_{};
     std::string address_edit_buffer_{};
+    std::size_t address_cursor_ = 0;
     std::string load_error_text_{};
     std::string failed_url_{};
     bool is_loading_ = false;
