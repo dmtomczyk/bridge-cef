@@ -77,6 +77,70 @@ std::string SanitizedDownloadName(const std::string& suggested_name) {
     return filename.empty() ? std::string("bridge-download") : filename;
 }
 
+std::string DescribeMediaPermissions(uint32_t permissions) {
+    std::vector<std::string> labels;
+    if ((permissions & CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE) != 0) {
+        labels.emplace_back("mic");
+    }
+    if ((permissions & CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE) != 0) {
+        labels.emplace_back("camera");
+    }
+    if ((permissions & CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE) != 0) {
+        labels.emplace_back("desktop-audio");
+    }
+    if ((permissions & CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE) != 0) {
+        labels.emplace_back("desktop-video");
+    }
+    if (labels.empty()) {
+        return std::string("none/unknown(") + std::to_string(permissions) + ")";
+    }
+    std::ostringstream out;
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        if (i != 0) {
+            out << ", ";
+        }
+        out << labels[i];
+    }
+    return out.str();
+}
+
+std::string DescribePermissionRequests(uint32_t permissions) {
+    struct PermissionBit {
+        uint32_t bit;
+        const char* label;
+    };
+    static constexpr PermissionBit kKnown[] = {
+        {CEF_PERMISSION_TYPE_GEOLOCATION, "geolocation"},
+        {CEF_PERMISSION_TYPE_NOTIFICATIONS, "notifications"},
+        {CEF_PERMISSION_TYPE_CLIPBOARD, "clipboard"},
+        {CEF_PERMISSION_TYPE_MIC_STREAM, "mic-stream"},
+        {CEF_PERMISSION_TYPE_CAMERA_STREAM, "camera-stream"},
+        {CEF_PERMISSION_TYPE_MULTIPLE_DOWNLOADS, "multiple-downloads"},
+        {CEF_PERMISSION_TYPE_POINTER_LOCK, "pointer-lock"},
+        {CEF_PERMISSION_TYPE_FILE_SYSTEM_ACCESS, "file-system-access"},
+        {CEF_PERMISSION_TYPE_LOCAL_NETWORK_ACCESS, "local-network-access"},
+        {CEF_PERMISSION_TYPE_LOCAL_NETWORK, "local-network"},
+        {CEF_PERMISSION_TYPE_LOOPBACK_NETWORK, "loopback-network"},
+    };
+    std::vector<std::string> labels;
+    for (const auto& item : kKnown) {
+        if ((permissions & item.bit) != 0) {
+            labels.emplace_back(item.label);
+        }
+    }
+    if (labels.empty()) {
+        return std::string("none/unknown(") + std::to_string(permissions) + ")";
+    }
+    std::ostringstream out;
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        if (i != 0) {
+            out << ", ";
+        }
+        out << labels[i];
+    }
+    return out.str();
+}
+
 }  // namespace
 
 CefBrowserHandler::CefBrowserHandler(bool is_alloy_style,
@@ -293,6 +357,48 @@ void CefBrowserHandler::OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
     } else if (download_item->IsCanceled()) {
         LOG(WARNING) << "engine-cef runtime-host download canceled: " << download_item->GetURL().ToString();
     }
+}
+
+bool CefBrowserHandler::OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser,
+                                                       CefRefPtr<CefFrame> frame,
+                                                       const CefString& requesting_origin,
+                                                       uint32_t requested_permissions,
+                                                       CefRefPtr<CefMediaAccessCallback> callback) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    (void)frame;
+    if (!use_osr_ || !callback) {
+        return false;
+    }
+    LOG(WARNING) << "engine-cef runtime-host denied media permission for origin "
+                 << requesting_origin.ToString() << ": " << DescribeMediaPermissions(requested_permissions);
+    callback->Cancel();
+    return true;
+}
+
+bool CefBrowserHandler::OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser,
+                                               uint64_t prompt_id,
+                                               const CefString& requesting_origin,
+                                               uint32_t requested_permissions,
+                                               CefRefPtr<CefPermissionPromptCallback> callback) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    if (!use_osr_ || !callback) {
+        return false;
+    }
+    LOG(WARNING) << "engine-cef runtime-host denied permission prompt " << prompt_id << " for origin "
+                 << requesting_origin.ToString() << ": " << DescribePermissionRequests(requested_permissions);
+    callback->Continue(CEF_PERMISSION_RESULT_DENY);
+    return true;
+}
+
+void CefBrowserHandler::OnDismissPermissionPrompt(CefRefPtr<CefBrowser> browser,
+                                                  uint64_t prompt_id,
+                                                  cef_permission_request_result_t result) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    LOG(WARNING) << "engine-cef runtime-host permission prompt dismissed: id=" << prompt_id
+                 << " result=" << static_cast<int>(result);
 }
 
 bool CefBrowserHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
