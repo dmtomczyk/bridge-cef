@@ -1,5 +1,7 @@
 #include "cef_browser_handler.h"
 
+#include <cstdlib>
+#include <filesystem>
 #include <sstream>
 #include <string>
 
@@ -56,6 +58,23 @@ bool IsMeaningfulPopupTarget(const std::string& url) {
         return false;
     }
     return true;
+}
+
+std::filesystem::path DefaultDownloadDirectory() {
+    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+        return std::filesystem::path(home) / "Downloads" / "BRIDGE";
+    }
+#if defined(__unix__) || defined(__APPLE__)
+    return std::filesystem::path("/tmp") /
+           (std::string("bridge-downloads-user-") + std::to_string(::getuid()));
+#else
+    return std::filesystem::temp_directory_path() / "bridge-downloads";
+#endif
+}
+
+std::string SanitizedDownloadName(const std::string& suggested_name) {
+    const std::string filename = std::filesystem::path(suggested_name).filename().string();
+    return filename.empty() ? std::string("bridge-download") : filename;
 }
 
 }  // namespace
@@ -233,6 +252,47 @@ bool CefBrowserHandler::OnFileDialog(CefRefPtr<CefBrowser> browser,
     g_object_unref(dialog);
     return true;
 #endif
+}
+
+bool CefBrowserHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
+                                         CefRefPtr<CefDownloadItem> download_item,
+                                         const CefString& suggested_name,
+                                         CefRefPtr<CefBeforeDownloadCallback> callback) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    if (!use_osr_ || !download_item || !callback) {
+        return false;
+    }
+
+    const std::filesystem::path download_dir = DefaultDownloadDirectory();
+    std::error_code ec;
+    std::filesystem::create_directories(download_dir, ec);
+    if (ec) {
+        LOG(ERROR) << "engine-cef runtime-host download directory creation failed: " << ec.message();
+        callback->Continue(CefString(), true);
+        return true;
+    }
+
+    const std::filesystem::path target = download_dir / SanitizedDownloadName(suggested_name.ToString());
+    LOG(WARNING) << "engine-cef runtime-host download target: " << target.string();
+    callback->Continue(target.string(), false);
+    return true;
+}
+
+void CefBrowserHandler::OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
+                                          CefRefPtr<CefDownloadItem> download_item,
+                                          CefRefPtr<CefDownloadItemCallback> callback) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    (void)callback;
+    if (!download_item) {
+        return;
+    }
+    if (download_item->IsComplete()) {
+        LOG(WARNING) << "engine-cef runtime-host download complete: " << download_item->GetFullPath().ToString();
+    } else if (download_item->IsCanceled()) {
+        LOG(WARNING) << "engine-cef runtime-host download canceled: " << download_item->GetURL().ToString();
+    }
 }
 
 bool CefBrowserHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,

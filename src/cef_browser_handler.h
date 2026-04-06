@@ -11,6 +11,7 @@
 class CefBrowserHandler : public CefClient,
                      public CefDialogHandler,
                      public CefDisplayHandler,
+                     public CefDownloadHandler,
                      public CefLifeSpanHandler,
                      public CefLoadHandler,
                      public CefRenderHandler {
@@ -28,6 +29,7 @@ public:
 
     CefRefPtr<CefDialogHandler> GetDialogHandler() override { return this; }
     CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+    CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
     CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
     CefRefPtr<CefRenderHandler> GetRenderHandler() override { return use_osr_ ? this : nullptr; }
@@ -44,6 +46,13 @@ public:
                       const std::vector<CefString>& accept_extensions,
                       const std::vector<CefString>& accept_descriptions,
                       CefRefPtr<CefFileDialogCallback> callback) override;
+    bool OnBeforeDownload(CefRefPtr<CefBrowser> browser,
+                          CefRefPtr<CefDownloadItem> download_item,
+                          const CefString& suggested_name,
+                          CefRefPtr<CefBeforeDownloadCallback> callback) override;
+    void OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
+                           CefRefPtr<CefDownloadItem> download_item,
+                           CefRefPtr<CefDownloadItemCallback> callback) override;
     bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
                        CefRefPtr<CefFrame> frame,
                        int popup_id,
