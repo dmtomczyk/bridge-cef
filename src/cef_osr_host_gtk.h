@@ -64,6 +64,7 @@ private:
     bool SyncViewSizeFromAllocation(bool notify_browser, int fallback_width = 0, int fallback_height = 0);
     void QueueDeferredResizeSync();
     bool HandleChromeClick(int x, int y);
+    bool HandleAddressContextMenuClick(int x, int y);
     void FocusAddressField(bool select_all = true, std::size_t cursor = std::string::npos);
     void BlurAddressField();
     bool NavigateAddressBuffer();
@@ -105,6 +106,9 @@ private:
     bool can_go_forward_ = false;
     bool address_focused_ = false;
     bool address_replace_on_type_ = false;
+    bool address_context_menu_open_ = false;
+    int address_context_menu_x_ = 0;
+    int address_context_menu_y_ = 0;
     bool deferred_resize_pending_ = false;
     CefRefPtr<CefBrowser> browser_{};
 };

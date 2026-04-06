@@ -32,6 +32,8 @@ constexpr double kAddressHeight = 28.0;
 constexpr double kGoButtonWidth = 40.0;
 constexpr double kAddressTextInsetX = 12.0;
 constexpr int kAddressGlyphAdvance = 7;
+constexpr double kContextMenuWidth = 150.0;
+constexpr double kContextMenuItemHeight = 26.0;
 
 struct Rect {
     double x;
@@ -54,6 +56,12 @@ Rect AddressRect(int draw_width) {
 Rect GoButtonRect(int draw_width) {
     const Rect address = AddressRect(draw_width);
     return {address.x + address.w + 10.0, 11.0, kGoButtonWidth, 26.0};
+}
+Rect AddressContextMenuRect(int x, int y) {
+    return {static_cast<double>(x), static_cast<double>(y), kContextMenuWidth, kContextMenuItemHeight * 4.0};
+}
+Rect AddressContextMenuItemRect(int x, int y, int index) {
+    return {static_cast<double>(x), static_cast<double>(y) + index * kContextMenuItemHeight, kContextMenuWidth, kContextMenuItemHeight};
 }
 
 double MeasureAddressTextWidth(std::string_view text) {
@@ -470,6 +478,31 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
 
     draw_button(go_rect, "Go", true);
 
+    if (address_context_menu_open_) {
+        const Rect menu_rect = AddressContextMenuRect(address_context_menu_x_, address_context_menu_y_);
+        cairo_set_source_rgba(cr, 0.11, 0.14, 0.19, 0.98);
+        cairo_rectangle(cr, menu_rect.x, menu_rect.y, menu_rect.w, menu_rect.h);
+        cairo_fill(cr);
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, kChromeBorder);
+        cairo_rectangle(cr, menu_rect.x, menu_rect.y, menu_rect.w, menu_rect.h);
+        cairo_stroke(cr);
+
+        static constexpr const char* kItems[] = {"Copy", "Paste", "Cut", "Select All"};
+        cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 12.0);
+        for (int i = 0; i < 4; ++i) {
+            const Rect item = AddressContextMenuItemRect(address_context_menu_x_, address_context_menu_y_, i);
+            if (i != 0) {
+                cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.08);
+                cairo_rectangle(cr, item.x, item.y, item.w, 1.0);
+                cairo_fill(cr);
+            }
+            cairo_set_source_rgba(cr, 0.93, 0.97, 1.0, 0.94);
+            cairo_move_to(cr, item.x + 12.0, item.y + 17.0);
+            cairo_show_text(cr, kItems[i]);
+        }
+    }
+
     const char* status_label = "Ready";
     double status_r = 0.36;
     double status_g = 0.78;
@@ -600,11 +633,14 @@ std::size_t CefOsrHostGtk::AddressCursorFromPoint(int draw_width, int x) const {
 }
 
 void CefOsrHostGtk::FocusAddressField(bool select_all, std::size_t cursor) {
+    const bool was_focused = address_focused_;
     address_focused_ = true;
-    address_edit_buffer_ = current_url_;
+    if (!was_focused) {
+        address_edit_buffer_ = current_url_;
+    }
     address_replace_on_type_ = select_all;
     if (cursor == std::string::npos) {
-        address_cursor_ = select_all ? address_edit_buffer_.size() : address_edit_buffer_.size();
+        address_cursor_ = address_edit_buffer_.size();
     } else {
         address_cursor_ = std::min(cursor, address_edit_buffer_.size());
     }
@@ -619,6 +655,7 @@ void CefOsrHostGtk::FocusAddressField(bool select_all, std::size_t cursor) {
 void CefOsrHostGtk::BlurAddressField() {
     address_focused_ = false;
     address_replace_on_type_ = false;
+    address_context_menu_open_ = false;
     address_edit_buffer_ = current_url_;
     address_cursor_ = address_edit_buffer_.size();
 #if defined(CEF_X11)
@@ -721,6 +758,52 @@ void CefOsrHostGtk::AddressPasteClipboard() {
 #endif
 }
 
+bool CefOsrHostGtk::HandleAddressContextMenuClick(int x, int y) {
+    if (!address_context_menu_open_) {
+        return false;
+    }
+    const Rect menu_rect = AddressContextMenuRect(address_context_menu_x_, address_context_menu_y_);
+    if (!Contains(menu_rect, x, y)) {
+        address_context_menu_open_ = false;
+#if defined(CEF_X11)
+        if (drawing_area_ != nullptr) {
+            gtk_widget_queue_draw(drawing_area_);
+        }
+#endif
+        return false;
+    }
+
+    for (int i = 0; i < 4; ++i) {
+        if (!Contains(AddressContextMenuItemRect(address_context_menu_x_, address_context_menu_y_, i), x, y)) {
+            continue;
+        }
+        switch (i) {
+            case 0:
+                AddressCopySelection();
+                break;
+            case 1:
+                AddressPasteClipboard();
+                break;
+            case 2:
+                AddressCutSelection();
+                break;
+            case 3:
+                AddressSelectAll();
+                break;
+            default:
+                break;
+        }
+        address_context_menu_open_ = false;
+#if defined(CEF_X11)
+        if (drawing_area_ != nullptr) {
+            gtk_widget_queue_draw(drawing_area_);
+        }
+#endif
+        return true;
+    }
+    return false;
+}
+
 bool CefOsrHostGtk::HandleChromeClick(int x, int y) {
     const int draw_width = drawing_area_ != nullptr ? std::max(1, gtk_widget_get_allocated_width(drawing_area_)) : width_;
     if (Contains(BackButtonRect(), x, y)) {
@@ -746,9 +829,12 @@ bool CefOsrHostGtk::HandleChromeClick(int x, int y) {
     }
     if (Contains(AddressRect(draw_width), x, y)) {
         const bool was_focused = address_focused_;
-        const std::size_t cursor = was_focused ? AddressCursorFromPoint(draw_width, x)
-                                               : std::min(current_url_.size(), AddressCursorFromPoint(draw_width, x));
-        FocusAddressField(false, cursor);
+        if (!was_focused) {
+            FocusAddressField(true);
+        } else {
+            const std::size_t cursor = AddressCursorFromPoint(draw_width, x);
+            FocusAddressField(false, cursor);
+        }
         return true;
     }
     if (Contains(GoButtonRect(draw_width), x, y)) {
@@ -803,12 +889,47 @@ int CefOsrHostGtk::HandleButton(GdkEventButton* event, bool mouse_up) {
     }
     const int x = static_cast<int>(event->x);
     const int y = static_cast<int>(event->y);
+    const int draw_width = drawing_area_ != nullptr ? std::max(1, gtk_widget_get_allocated_width(drawing_area_)) : width_;
+
+    if (address_context_menu_open_) {
+        if (!mouse_up) {
+            return 1;
+        }
+        if (HandleAddressContextMenuClick(x, y)) {
+            return 1;
+        }
+        address_context_menu_open_ = false;
+        if (drawing_area_ != nullptr) {
+            gtk_widget_queue_draw(drawing_area_);
+        }
+        return 1;
+    }
+
     if (y < kTopStripHeight) {
-        if (mouse_up) {
+        if (event->button == 3) {
+            if (mouse_up && Contains(AddressRect(draw_width), x, y)) {
+                if (!address_focused_) {
+                    FocusAddressField(true);
+                }
+                address_context_menu_open_ = true;
+                address_context_menu_x_ = std::max(8, std::min(x, draw_width - static_cast<int>(kContextMenuWidth) - 8));
+                address_context_menu_y_ = std::max(8, std::min(y, height_ - static_cast<int>(kContextMenuItemHeight * 4.0) - 8));
+                if (drawing_area_ != nullptr) {
+                    gtk_widget_queue_draw(drawing_area_);
+                }
+            }
+            return 1;
+        }
+        if (mouse_up && event->button == 1) {
             return HandleChromeClick(x, y) ? 1 : 1;
         }
         return 1;
     }
+
+    if (event->button == 3) {
+        return 1;
+    }
+
     if (address_focused_) {
         BlurAddressField();
     }
@@ -909,6 +1030,13 @@ int CefOsrHostGtk::HandleKey(GdkEventKey* event, bool key_up) {
 
     if (!key_up && control_down && !alt_down && (event->keyval == GDK_KEY_l || event->keyval == GDK_KEY_L)) {
         FocusAddressField();
+        return 1;
+    }
+    if (!key_up && event->keyval == GDK_KEY_Escape && address_context_menu_open_) {
+        address_context_menu_open_ = false;
+        if (drawing_area_ != nullptr) {
+            gtk_widget_queue_draw(drawing_area_);
+        }
         return 1;
     }
 
