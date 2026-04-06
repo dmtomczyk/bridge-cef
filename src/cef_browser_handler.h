@@ -9,6 +9,7 @@
 #include "include/cef_client.h"
 
 class CefBrowserHandler : public CefClient,
+                     public CefDialogHandler,
                      public CefDisplayHandler,
                      public CefLifeSpanHandler,
                      public CefLoadHandler,
@@ -25,6 +26,7 @@ public:
 
     static CefBrowserHandler* GetInstance();
 
+    CefRefPtr<CefDialogHandler> GetDialogHandler() override { return this; }
     CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
     CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
@@ -34,6 +36,14 @@ public:
                          CefRefPtr<CefFrame> frame,
                          const CefString& url) override;
     void OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) override;
+    bool OnFileDialog(CefRefPtr<CefBrowser> browser,
+                      FileDialogMode mode,
+                      const CefString& title,
+                      const CefString& default_file_path,
+                      const std::vector<CefString>& accept_filters,
+                      const std::vector<CefString>& accept_extensions,
+                      const std::vector<CefString>& accept_descriptions,
+                      CefRefPtr<CefFileDialogCallback> callback) override;
     bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
                        CefRefPtr<CefFrame> frame,
                        int popup_id,

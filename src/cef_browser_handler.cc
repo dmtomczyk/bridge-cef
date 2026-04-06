@@ -9,6 +9,10 @@
 extern char** environ;
 #endif
 
+#if defined(CEF_X11)
+#include <gtk/gtk.h>
+#endif
+
 #include "include/base/cef_callback.h"
 #include "include/cef_app.h"
 #include "include/cef_parser.h"
@@ -107,6 +111,128 @@ void CefBrowserHandler::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefSt
     } else if (is_alloy_style_) {
         PlatformTitleChange(browser, title);
     }
+}
+
+bool CefBrowserHandler::OnFileDialog(CefRefPtr<CefBrowser> browser,
+                                     FileDialogMode mode,
+                                     const CefString& title,
+                                     const CefString& default_file_path,
+                                     const std::vector<CefString>& accept_filters,
+                                     const std::vector<CefString>& accept_extensions,
+                                     const std::vector<CefString>& accept_descriptions,
+                                     CefRefPtr<CefFileDialogCallback> callback) {
+    CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    (void)accept_filters;
+
+#if !defined(CEF_X11)
+    (void)mode;
+    (void)title;
+    (void)default_file_path;
+    (void)accept_extensions;
+    (void)accept_descriptions;
+    (void)callback;
+    return false;
+#else
+    if (!use_osr_ || !callback) {
+        return false;
+    }
+
+    GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
+    bool select_multiple = false;
+    switch (mode) {
+        case FILE_DIALOG_OPEN:
+            action = GTK_FILE_CHOOSER_ACTION_OPEN;
+            break;
+        case FILE_DIALOG_OPEN_MULTIPLE:
+            action = GTK_FILE_CHOOSER_ACTION_OPEN;
+            select_multiple = true;
+            break;
+        case FILE_DIALOG_OPEN_FOLDER:
+            action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
+            break;
+        case FILE_DIALOG_SAVE:
+            action = GTK_FILE_CHOOSER_ACTION_SAVE;
+            break;
+        default:
+            return false;
+    }
+
+    GtkFileChooserNative* dialog = gtk_file_chooser_native_new(
+        title.empty() ? nullptr : title.ToString().c_str(), nullptr, action,
+        action == GTK_FILE_CHOOSER_ACTION_SAVE ? "Save" : "Open", "Cancel");
+    if (dialog == nullptr) {
+        return false;
+    }
+
+    GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
+    gtk_file_chooser_set_select_multiple(chooser, select_multiple ? TRUE : FALSE);
+    gtk_file_chooser_set_local_only(chooser, TRUE);
+    if (action == GTK_FILE_CHOOSER_ACTION_SAVE) {
+        gtk_file_chooser_set_do_overwrite_confirmation(chooser, TRUE);
+    }
+
+    const std::string default_path = default_file_path.ToString();
+    if (!default_path.empty()) {
+        if (action == GTK_FILE_CHOOSER_ACTION_SAVE) {
+            gtk_file_chooser_set_filename(chooser, default_path.c_str());
+        } else {
+            gtk_file_chooser_set_current_folder(chooser, default_path.c_str());
+            gtk_file_chooser_select_filename(chooser, default_path.c_str());
+        }
+    }
+
+    for (std::size_t i = 0; i < accept_extensions.size(); ++i) {
+        const std::string extensions = accept_extensions[i].ToString();
+        const std::string description = i < accept_descriptions.size() ? accept_descriptions[i].ToString() : std::string();
+        if (extensions.empty()) {
+            continue;
+        }
+        GtkFileFilter* filter = gtk_file_filter_new();
+        if (!description.empty()) {
+            gtk_file_filter_set_name(filter, description.c_str());
+        }
+        std::size_t start = 0;
+        while (start < extensions.size()) {
+            const std::size_t end = extensions.find(';', start);
+            const std::string ext = extensions.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            if (!ext.empty()) {
+                const std::string pattern = ext[0] == '.' ? std::string("*") + ext : std::string("*.") + ext;
+                gtk_file_filter_add_pattern(filter, pattern.c_str());
+            }
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+        gtk_file_chooser_add_filter(chooser, filter);
+    }
+
+    std::vector<CefString> selected_paths;
+    const int response = gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog));
+    if (response == GTK_RESPONSE_ACCEPT) {
+        if (select_multiple) {
+            GSList* files = gtk_file_chooser_get_filenames(chooser);
+            for (GSList* node = files; node != nullptr; node = node->next) {
+                if (node->data != nullptr) {
+                    selected_paths.emplace_back(static_cast<const char*>(node->data));
+                    g_free(node->data);
+                }
+            }
+            g_slist_free(files);
+        } else if (char* filename = gtk_file_chooser_get_filename(chooser); filename != nullptr) {
+            selected_paths.emplace_back(filename);
+            g_free(filename);
+        }
+        callback->Continue(selected_paths);
+    } else {
+        callback->Cancel();
+    }
+
+    gtk_native_dialog_destroy(GTK_NATIVE_DIALOG(dialog));
+    g_object_unref(dialog);
+    return true;
+#endif
 }
 
 bool CefBrowserHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
