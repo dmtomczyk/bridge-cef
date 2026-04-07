@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "include/base/cef_logging.h"
+#include "include/cef_app.h"
 
 namespace {
 
