@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
+  add_compile_options(/EHsc)
 endif()
 
 option(ENGINE_CEF_ENABLE_CEF "Build against a local CEF binary distribution" OFF)
