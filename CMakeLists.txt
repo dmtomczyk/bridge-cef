@@ -118,7 +118,7 @@ if(ENGINE_CEF_ENABLE_CEF)
   if(ENGINE_CEF_RUNTIME_TARGET_PLATFORM STREQUAL "linux")
     target_compile_definitions(engine_cef_runtime_host PUBLIC ENGINE_CEF_RUNTIME_TARGET_PLATFORM_LINUX=1)
   elseif(ENGINE_CEF_RUNTIME_TARGET_PLATFORM STREQUAL "windows")
-    target_compile_definitions(engine_cef_runtime_host PUBLIC ENGINE_CEF_RUNTIME_TARGET_PLATFORM_WINDOWS=1)
+    target_compile_definitions(engine_cef_runtime_host PUBLIC ENGINE_CEF_RUNTIME_TARGET_PLATFORM_WINDOWS=1 NOMINMAX WIN32_LEAN_AND_MEAN)
   endif()
 
   add_executable(engine_cef_runtime_host_bridge_observer_test tests/runtime_host_bridge_observer_test.cpp)
