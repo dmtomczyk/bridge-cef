@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC runtime library" FORCE)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
 endif()
 
 option(ENGINE_CEF_ENABLE_CEF "Build against a local CEF binary distribution" OFF)
@@ -24,7 +24,7 @@ add_library(engine_cef_core STATIC
 )
 target_compile_features(engine_cef_core PUBLIC cxx_std_20)
 if(MSVC)
-  set_property(TARGET engine_cef_core PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+  set_property(TARGET engine_cef_core PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 target_include_directories(engine_cef_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -115,7 +115,7 @@ if(ENGINE_CEF_ENABLE_CEF)
   )
   target_compile_features(engine_cef_runtime_host PUBLIC cxx_std_20)
   if(MSVC)
-    set_property(TARGET engine_cef_runtime_host PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    set_property(TARGET engine_cef_runtime_host PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   endif()
   target_link_libraries(engine_cef_runtime_host PUBLIC engine_cef_core libcef_lib libcef_dll_wrapper ${ENGINE_CEF_RUNTIME_PLATFORM_LINK_LIBS} ${CEF_STANDARD_LIBS})
   target_include_directories(engine_cef_runtime_host PUBLIC
