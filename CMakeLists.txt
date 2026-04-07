@@ -26,9 +26,6 @@ target_compile_features(engine_cef_core PUBLIC cxx_std_20)
 if(MSVC)
   set_property(TARGET engine_cef_core PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
-if(ENGINE_CEF_ENABLE_CEF)
-  set_library_target_properties(engine_cef_core)
-endif()
 target_include_directories(engine_cef_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -81,6 +78,7 @@ if(ENGINE_CEF_ENABLE_CEF)
   add_logical_target("libcef_lib" "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
   set_cef_target_out_dir()
   add_subdirectory(${CEF_LIBCEF_DLL_WRAPPER_PATH} libcef_dll_wrapper)
+  set_library_target_properties(engine_cef_core)
 
   set(ENGINE_CEF_RUNTIME_PLATFORM_SOURCES
     src/cef_runtime_window_host_factory.cc
