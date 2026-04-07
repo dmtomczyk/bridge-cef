@@ -31,6 +31,9 @@ target_include_directories(engine_cef_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${BRIDGE_CORE_DIR}/include
 )
+if(ENGINE_CEF_ENABLE_CEF)
+  target_compile_definitions(engine_cef_core PUBLIC USING_CEF_SHARED=1)
+endif()
 
 add_executable(engine_cef_bridge_frame_contract_test tests/bridge_frame_contract_test.cpp)
 target_compile_features(engine_cef_bridge_frame_contract_test PRIVATE cxx_std_20)
@@ -124,6 +127,7 @@ if(ENGINE_CEF_ENABLE_CEF)
   )
   target_compile_definitions(engine_cef_runtime_host PUBLIC
     ENGINE_CEF_BRIDGE_ICON_PNG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../browser/assets/bridge.png"
+    USING_CEF_SHARED=1
   )
   if(ENGINE_CEF_RUNTIME_TARGET_PLATFORM STREQUAL "linux")
     target_compile_definitions(engine_cef_runtime_host PUBLIC ENGINE_CEF_RUNTIME_TARGET_PLATFORM_LINUX=1)
