@@ -41,8 +41,10 @@ Use the browser build with the Windows runtime target selected.
 ## Configure
 Use the normal browser configure flow, but set:
 - `-DENGINE_CEF_RUNTIME_TARGET_PLATFORM=windows`
+- `-DBRIDGE_ENABLED_ENGINES=custom;cef`
 
-Keep the rest aligned with the current CEF-enabled runtime-host build path.
+For the current Windows runtime-host smoke path, do **not** leave Chromium enabled implicitly via the default engine list.
+The active target here is the hybrid `custom + cef` path.
 
 ## Build targets
 At minimum build:
