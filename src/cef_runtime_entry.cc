@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "include/cef_app.h"
+#include "cef_runtime_runner.h"
 
 namespace {
 
@@ -112,7 +113,22 @@ int CefRuntimeHost::Run(int argc, char* argv[]) const {
     }
 
     app_->set_launch_config(config_.launch);
-    const int exit_code = CefLinuxMainRunner::Run(argc, argv, app_, config_.runner);
+    auto runner = CreatePlatformRuntimeRunner();
+    if (!runner) {
+        {
+            std::lock_guard<std::mutex> lock(state->mutex);
+            state->status.last_exit_code = 1;
+            state->status.phase = CefRuntimePhase::failed;
+            state->status.last_error = "No platform runtime runner available";
+            runtime_observer = state->runtime_observer;
+            status = state->status;
+        }
+        if (runtime_observer) {
+            runtime_observer->on_runtime_status_changed(status);
+        }
+        return 1;
+    }
+    const int exit_code = runner->Run(argc, argv, app_, config_.runner);
 
     {
         std::lock_guard<std::mutex> lock(state->mutex);

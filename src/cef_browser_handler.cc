@@ -6,13 +6,7 @@
 #include <string>
 
 #if defined(__linux__)
-#include <spawn.h>
 #include <unistd.h>
-extern char** environ;
-#endif
-
-#if defined(CEF_X11)
-#include <gtk/gtk.h>
 #endif
 
 #include "include/base/cef_callback.h"
@@ -32,21 +26,6 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
            CefURIEncode(CefBase64Encode(data.data(), data.size()), false).ToString();
 }
 
-bool TryOpenExternally(const std::string& url) {
-#if defined(__linux__)
-    if (url.empty()) {
-        return false;
-    }
-    pid_t pid = 0;
-    char* argv[] = {const_cast<char*>("xdg-open"), const_cast<char*>(url.c_str()), nullptr};
-    const int rc = posix_spawnp(&pid, "xdg-open", nullptr, nullptr, argv, environ);
-    return rc == 0;
-#else
-    (void)url;
-    return false;
-#endif
-}
-
 bool IsMeaningfulPopupTarget(const std::string& url) {
     if (url.empty()) {
         return false;
@@ -58,6 +37,19 @@ bool IsMeaningfulPopupTarget(const std::string& url) {
         return false;
     }
     return true;
+}
+
+bool IsTabOrPopupDisposition(CefLifeSpanHandler::WindowOpenDisposition disposition) {
+    switch (disposition) {
+        case CEF_WOD_NEW_FOREGROUND_TAB:
+        case CEF_WOD_NEW_BACKGROUND_TAB:
+        case CEF_WOD_NEW_POPUP:
+        case CEF_WOD_NEW_WINDOW:
+        case CEF_WOD_OFF_THE_RECORD:
+            return true;
+        default:
+            return false;
+    }
 }
 
 std::filesystem::path DefaultDownloadDirectory() {
@@ -149,14 +141,22 @@ CefBrowserHandler::CefBrowserHandler(bool is_alloy_style,
                                      bool verify_presentation_v2,
                                      bridge::cef::CefBackend::Ptr backend,
                                      std::shared_ptr<bridge::cef::IIntegrationBridge> bridge,
-                                     CefOsrHostGtk* osr_host)
+                                     CefRuntimeWindowHost* runtime_host,
+                                     int tab_id,
+                                     CefTabPageKind page_kind,
+                                     std::string home_url,
+                                     bool active_on_host)
     : is_alloy_style_(is_alloy_style),
       use_osr_(use_osr),
       quit_after_first_frame_(quit_after_first_frame),
       verify_presentation_v2_(verify_presentation_v2),
+      tab_id_(tab_id),
+      page_kind_(page_kind),
+      home_url_(std::move(home_url)),
+      active_on_host_(active_on_host),
       backend_(std::move(backend)),
       bridge_(std::move(bridge)),
-      osr_host_(osr_host) {
+      runtime_host_(runtime_host) {
     g_instance = this;
 }
 
@@ -172,25 +172,32 @@ void CefBrowserHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
                                         CefRefPtr<CefFrame> frame,
                                         const CefString& url) {
     CEF_REQUIRE_UI_THREAD();
-    if (frame && frame->IsMain() && backend_) {
-        backend_->observe_address_change(url.ToString());
+    (void)browser;
+    if (frame && frame->IsMain()) {
+        current_url_ = url.ToString();
+        page_kind_ = (!home_url_.empty() && current_url_ == home_url_) ? CefTabPageKind::bridge_home
+                                                                        : CefTabPageKind::normal;
     }
-    if (frame && frame->IsMain() && osr_host_) {
-        osr_host_->SetCurrentUrl(url.ToString());
+    if (frame && frame->IsMain() && backend_) {
+        backend_->observe_address_change(current_url_);
+    }
+    if (frame && frame->IsMain() && runtime_host_ && active_on_host_) {
+        runtime_host_->SetCurrentUrl(current_url_);
     }
 }
 
 void CefBrowserHandler::OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) {
     CEF_REQUIRE_UI_THREAD();
+    current_title_ = title.ToString();
     if (backend_) {
-        backend_->observe_title_change(title.ToString());
+        backend_->observe_title_change(current_title_);
     }
     if (auto browser_view = CefBrowserView::GetForBrowser(browser)) {
         if (auto window = browser_view->GetWindow()) {
             window->SetTitle(title);
         }
-    } else if (osr_host_) {
-        osr_host_->SetWindowTitle(title.ToString());
+    } else if (runtime_host_ && active_on_host_) {
+        runtime_host_->SetWindowTitle(current_title_);
     } else if (is_alloy_style_) {
         PlatformTitleChange(browser, title);
     }
@@ -208,114 +215,27 @@ bool CefBrowserHandler::OnFileDialog(CefRefPtr<CefBrowser> browser,
     (void)browser;
     (void)accept_filters;
 
-#if !defined(CEF_X11)
-    (void)mode;
-    (void)title;
-    (void)default_file_path;
-    (void)accept_extensions;
-    (void)accept_descriptions;
-    (void)callback;
-    return false;
-#else
-    if (!use_osr_ || !callback) {
+    if (!use_osr_ || !callback || !runtime_host_) {
         return false;
     }
 
-    GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
-    bool select_multiple = false;
-    switch (mode) {
-        case FILE_DIALOG_OPEN:
-            action = GTK_FILE_CHOOSER_ACTION_OPEN;
-            break;
-        case FILE_DIALOG_OPEN_MULTIPLE:
-            action = GTK_FILE_CHOOSER_ACTION_OPEN;
-            select_multiple = true;
-            break;
-        case FILE_DIALOG_OPEN_FOLDER:
-            action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
-            break;
-        case FILE_DIALOG_SAVE:
-            action = GTK_FILE_CHOOSER_ACTION_SAVE;
-            break;
-        default:
-            return false;
+    CefRuntimeWindowHost::FileDialogParams params{
+        .mode = mode,
+        .title = title.ToString(),
+        .default_file_path = default_file_path.ToString(),
+        .accept_extensions = {},
+        .accept_descriptions = {},
+        .callback = callback,
+    };
+    params.accept_extensions.reserve(accept_extensions.size());
+    for (const auto& item : accept_extensions) {
+        params.accept_extensions.push_back(item.ToString());
     }
-
-    GtkFileChooserNative* dialog = gtk_file_chooser_native_new(
-        title.empty() ? nullptr : title.ToString().c_str(), nullptr, action,
-        action == GTK_FILE_CHOOSER_ACTION_SAVE ? "Save" : "Open", "Cancel");
-    if (dialog == nullptr) {
-        return false;
+    params.accept_descriptions.reserve(accept_descriptions.size());
+    for (const auto& item : accept_descriptions) {
+        params.accept_descriptions.push_back(item.ToString());
     }
-
-    GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
-    gtk_file_chooser_set_select_multiple(chooser, select_multiple ? TRUE : FALSE);
-    gtk_file_chooser_set_local_only(chooser, TRUE);
-    if (action == GTK_FILE_CHOOSER_ACTION_SAVE) {
-        gtk_file_chooser_set_do_overwrite_confirmation(chooser, TRUE);
-    }
-
-    const std::string default_path = default_file_path.ToString();
-    if (!default_path.empty()) {
-        if (action == GTK_FILE_CHOOSER_ACTION_SAVE) {
-            gtk_file_chooser_set_filename(chooser, default_path.c_str());
-        } else {
-            gtk_file_chooser_set_current_folder(chooser, default_path.c_str());
-            gtk_file_chooser_select_filename(chooser, default_path.c_str());
-        }
-    }
-
-    for (std::size_t i = 0; i < accept_extensions.size(); ++i) {
-        const std::string extensions = accept_extensions[i].ToString();
-        const std::string description = i < accept_descriptions.size() ? accept_descriptions[i].ToString() : std::string();
-        if (extensions.empty()) {
-            continue;
-        }
-        GtkFileFilter* filter = gtk_file_filter_new();
-        if (!description.empty()) {
-            gtk_file_filter_set_name(filter, description.c_str());
-        }
-        std::size_t start = 0;
-        while (start < extensions.size()) {
-            const std::size_t end = extensions.find(';', start);
-            const std::string ext = extensions.substr(start, end == std::string::npos ? std::string::npos : end - start);
-            if (!ext.empty()) {
-                const std::string pattern = ext[0] == '.' ? std::string("*") + ext : std::string("*.") + ext;
-                gtk_file_filter_add_pattern(filter, pattern.c_str());
-            }
-            if (end == std::string::npos) {
-                break;
-            }
-            start = end + 1;
-        }
-        gtk_file_chooser_add_filter(chooser, filter);
-    }
-
-    std::vector<CefString> selected_paths;
-    const int response = gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog));
-    if (response == GTK_RESPONSE_ACCEPT) {
-        if (select_multiple) {
-            GSList* files = gtk_file_chooser_get_filenames(chooser);
-            for (GSList* node = files; node != nullptr; node = node->next) {
-                if (node->data != nullptr) {
-                    selected_paths.emplace_back(static_cast<const char*>(node->data));
-                    g_free(node->data);
-                }
-            }
-            g_slist_free(files);
-        } else if (char* filename = gtk_file_chooser_get_filename(chooser); filename != nullptr) {
-            selected_paths.emplace_back(filename);
-            g_free(filename);
-        }
-        callback->Continue(selected_paths);
-    } else {
-        callback->Cancel();
-    }
-
-    gtk_native_dialog_destroy(GTK_NATIVE_DIALOG(dialog));
-    g_object_unref(dialog);
-    return true;
-#endif
+    return runtime_host_->RunFileDialog(params);
 }
 
 bool CefBrowserHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
@@ -437,21 +357,47 @@ bool CefBrowserHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
         return true;
     }
 
+    const bool prefers_new_surface = IsTabOrPopupDisposition(target_disposition);
+    if (popup_request_handler_ && popup_request_handler_(url, target_disposition)) {
+        LOG(WARNING) << "engine-cef runtime-host popup opened as internal tab: " << url;
+        return true;
+    }
+
+    if (!prefers_new_surface) {
+        if (frame && frame->IsValid()) {
+            LOG(WARNING) << "engine-cef runtime-host popup redirected into current window after tab creation failed: " << url;
+            frame->LoadURL(url);
+            return true;
+        }
+        if (browser && browser->GetMainFrame()) {
+            LOG(WARNING) << "engine-cef runtime-host popup redirected into current main frame after tab creation failed: " << url;
+            browser->GetMainFrame()->LoadURL(url);
+            return true;
+        }
+    }
+
+    if (runtime_host_ && runtime_host_->OpenUrlExternally(url)) {
+        LOG(WARNING) << "engine-cef runtime-host popup fell back to external handoff: " << url;
+        return true;
+    }
+
+    if (prefers_new_surface) {
+        LOG(WARNING) << "engine-cef runtime-host blocked popup after tab creation failed for new-surface disposition: "
+                     << url;
+        return true;
+    }
+
     if (frame && frame->IsValid()) {
-        LOG(WARNING) << "engine-cef runtime-host popup redirected into current window: " << url;
+        LOG(WARNING) << "engine-cef runtime-host popup late-redirect into current window after external handoff failed: " << url;
         frame->LoadURL(url);
         return true;
     }
     if (browser && browser->GetMainFrame()) {
-        LOG(WARNING) << "engine-cef runtime-host popup redirected into current main frame: " << url;
+        LOG(WARNING) << "engine-cef runtime-host popup late-redirect into current main frame after external handoff failed: " << url;
         browser->GetMainFrame()->LoadURL(url);
         return true;
     }
-    if (TryOpenExternally(url)) {
-        LOG(WARNING) << "engine-cef runtime-host popup fell back to external handoff: " << url;
-        return true;
-    }
-    LOG(WARNING) << "engine-cef runtime-host blocked popup after failing in-window + external handling: " << url;
+    LOG(WARNING) << "engine-cef runtime-host blocked popup after tab + in-window + external handling failed: " << url;
     return true;
 }
 
@@ -459,19 +405,21 @@ void CefBrowserHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     CEF_REQUIRE_UI_THREAD();
     browser_list_.push_back(browser);
     if (use_osr_) {
-        if (osr_host_) {
-            osr_host_->NotifyBrowserCreated(browser);
-        } else {
-            browser->GetHost()->NotifyScreenInfoChanged();
-            browser->GetHost()->WasHidden(false);
-            browser->GetHost()->SetFocus(true);
-            browser->GetHost()->WasResized();
+        if (runtime_host_ && active_on_host_) {
+            runtime_host_->NotifyBrowserCreated(browser);
         }
+        browser->GetHost()->NotifyScreenInfoChanged();
+        browser->GetHost()->WasHidden(!active_on_host_);
+        browser->GetHost()->SetFocus(active_on_host_);
+        browser->GetHost()->WasResized();
     }
 }
 
 bool CefBrowserHandler::DoClose(CefRefPtr<CefBrowser> browser) {
     CEF_REQUIRE_UI_THREAD();
+    if (use_osr_ && runtime_host_ && active_on_host_) {
+        runtime_host_->NotifyBrowserClosing(browser);
+    }
     if (browser_list_.size() == 1) {
         is_closing_ = true;
     }
@@ -480,6 +428,9 @@ bool CefBrowserHandler::DoClose(CefRefPtr<CefBrowser> browser) {
 
 void CefBrowserHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
     CEF_REQUIRE_UI_THREAD();
+    LOG(WARNING) << "engine-cef runtime-host OnBeforeClose tab_id=" << tab_id_
+                 << " active_on_host=" << (active_on_host_ ? 1 : 0)
+                 << " browser_count_before=" << browser_list_.size();
     for (auto it = browser_list_.begin(); it != browser_list_.end(); ++it) {
         if ((*it)->IsSame(browser)) {
             browser_list_.erase(it);
@@ -487,7 +438,48 @@ void CefBrowserHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
         }
     }
     if (browser_list_.empty()) {
-        CefQuitMessageLoop();
+        if (all_browsers_closed_handler_) {
+            all_browsers_closed_handler_(tab_id_);
+        } else {
+            CefQuitMessageLoop();
+        }
+    }
+}
+
+void CefBrowserHandler::SetActiveOnHost(bool active, bool hydrate_host) {
+    CEF_REQUIRE_UI_THREAD();
+    active_on_host_ = active;
+
+    const auto browser = primary_browser();
+    if (!browser) {
+        return;
+    }
+
+    browser->GetHost()->WasHidden(!active_on_host_);
+    browser->GetHost()->SetFocus(active_on_host_);
+    if (!active_on_host_) {
+        return;
+    }
+
+    browser->GetHost()->NotifyScreenInfoChanged();
+    browser->GetHost()->WasResized();
+
+    if (!runtime_host_) {
+        return;
+    }
+
+    runtime_host_->NotifyBrowserCreated(browser);
+    runtime_host_->SetCurrentUrl(current_url_);
+    runtime_host_->SetLoadingState(is_loading_, can_go_back_, can_go_forward_);
+    if (!load_error_text_.empty()) {
+        runtime_host_->SetLoadError(load_error_text_, current_url_);
+    }
+    runtime_host_->SetWindowTitle(current_title_);
+    if (hydrate_host && !last_frame_argb_.empty() && last_frame_width_ > 0 && last_frame_height_ > 0) {
+        runtime_host_->PresentFrame(last_frame_argb_.data(),
+                                last_frame_width_,
+                                last_frame_height_,
+                                last_frame_stride_bytes_);
     }
 }
 
@@ -496,11 +488,18 @@ void CefBrowserHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
                                              bool canGoBack,
                                              bool canGoForward) {
     CEF_REQUIRE_UI_THREAD();
+    (void)browser;
+    is_loading_ = isLoading;
+    can_go_back_ = canGoBack;
+    can_go_forward_ = canGoForward;
+    if (!isLoading) {
+        load_error_text_.clear();
+    }
     if (backend_) {
         backend_->observe_loading_state(isLoading, canGoBack, canGoForward);
     }
-    if (osr_host_) {
-        osr_host_->SetLoadingState(isLoading, canGoBack, canGoForward);
+    if (runtime_host_ && active_on_host_) {
+        runtime_host_->SetLoadingState(isLoading, canGoBack, canGoForward);
     }
 }
 
@@ -519,14 +518,18 @@ void CefBrowserHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
                                const CefString& errorText,
                                const CefString& failedUrl) {
     CEF_REQUIRE_UI_THREAD();
+    (void)browser;
     if (errorCode == ERR_ABORTED) {
         return;
+    }
+    if (frame && frame->IsMain()) {
+        load_error_text_ = errorText.ToString();
     }
     if (backend_ && frame && frame->IsMain()) {
         backend_->observe_load_error(errorText.ToString());
     }
-    if (frame && frame->IsMain() && osr_host_) {
-        osr_host_->SetLoadError(errorText.ToString(), failedUrl.ToString());
+    if (frame && frame->IsMain() && runtime_host_ && active_on_host_) {
+        runtime_host_->SetLoadError(errorText.ToString(), failedUrl.ToString());
     }
     if (!is_alloy_style_) {
         return;
@@ -541,8 +544,8 @@ void CefBrowserHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
 
 bool CefBrowserHandler::GetRootScreenRect(CefRefPtr<CefBrowser> browser, CefRect& rect) {
     CEF_REQUIRE_UI_THREAD();
-    if (osr_host_) {
-        return osr_host_->GetRootScreenRect(rect);
+    if (runtime_host_) {
+        return runtime_host_->GetRootScreenRect(rect);
     }
     GetViewRect(browser, rect);
     return true;
@@ -555,8 +558,8 @@ bool CefBrowserHandler::GetScreenPoint(CefRefPtr<CefBrowser> browser,
                                        int& screenY) {
     CEF_REQUIRE_UI_THREAD();
     (void)browser;
-    if (osr_host_) {
-        return osr_host_->GetScreenPoint(viewX, viewY, screenX, screenY);
+    if (runtime_host_) {
+        return runtime_host_->GetScreenPoint(viewX, viewY, screenX, screenY);
     }
     screenX = viewX;
     screenY = viewY;
@@ -565,8 +568,8 @@ bool CefBrowserHandler::GetScreenPoint(CefRefPtr<CefBrowser> browser,
 
 bool CefBrowserHandler::GetScreenInfo(CefRefPtr<CefBrowser> browser, CefScreenInfo& screen_info) {
     CEF_REQUIRE_UI_THREAD();
-    if (osr_host_) {
-        return osr_host_->GetScreenInfo(screen_info);
+    if (runtime_host_) {
+        return runtime_host_->GetScreenInfo(screen_info);
     }
     CefRect rect;
     GetViewRect(browser, rect);
@@ -582,8 +585,8 @@ bool CefBrowserHandler::GetScreenInfo(CefRefPtr<CefBrowser> browser, CefScreenIn
 void CefBrowserHandler::GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) {
     CEF_REQUIRE_UI_THREAD();
     (void)browser;
-    if (osr_host_) {
-        osr_host_->GetViewRect(rect);
+    if (runtime_host_) {
+        runtime_host_->GetViewRect(rect);
         return;
     }
     const auto presentation = backend_ ? backend_->presentation_state() : bridge::cef::PresentationState{};
@@ -599,19 +602,23 @@ void CefBrowserHandler::OnPaint(CefRefPtr<CefBrowser> browser,
                                 int width,
                                 int height) {
     CEF_REQUIRE_UI_THREAD();
+    (void)browser;
     (void)dirtyRects;
     if (type != PET_VIEW || !backend_ || buffer == nullptr) {
         return;
     }
-    backend_->observe_frame(static_cast<const std::uint32_t*>(buffer),
-                            width,
-                            height,
-                            width * static_cast<int>(sizeof(std::uint32_t)));
-    if (osr_host_) {
-        osr_host_->PresentFrame(static_cast<const std::uint32_t*>(buffer),
-                                width,
-                                height,
-                                width * static_cast<int>(sizeof(std::uint32_t)));
+
+    const int stride_bytes = width * static_cast<int>(sizeof(std::uint32_t));
+    const auto* pixels = static_cast<const std::uint32_t*>(buffer);
+    last_frame_width_ = width;
+    last_frame_height_ = height;
+    last_frame_stride_bytes_ = stride_bytes;
+    last_frame_argb_.assign(pixels,
+                            pixels + static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+
+    backend_->observe_frame(last_frame_argb_.data(), width, height, stride_bytes);
+    if (runtime_host_ && active_on_host_) {
+        runtime_host_->PresentFrame(last_frame_argb_.data(), width, height, stride_bytes);
     }
     if (!saw_first_frame_) {
         LOG(WARNING) << "engine-cef osr first frame " << width << "x" << height;
@@ -662,8 +669,11 @@ void CefBrowserHandler::CloseAllBrowsers(bool force_close) {
                                    force_close));
         return;
     }
-    for (const auto& browser : browser_list_) {
-        browser->GetHost()->CloseBrowser(force_close);
+    std::vector<CefRefPtr<CefBrowser>> browsers(browser_list_.begin(), browser_list_.end());
+    for (const auto& browser : browsers) {
+        if (browser) {
+            browser->GetHost()->CloseBrowser(force_close);
+        }
     }
 }
 

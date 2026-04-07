@@ -1,10 +1,15 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
+#include <utility>
 
 #include "include/cef_client.h"
+
+#include "browser/browser_action.h"
+#include "cef_runtime_host.h"
 
 #if defined(CEF_X11)
 typedef struct _GtkWidget GtkWidget;
@@ -18,27 +23,46 @@ typedef struct _GdkEventConfigure GdkEventConfigure;
 typedef struct _GdkPixbuf GdkPixbuf;
 #endif
 
-class CefOsrHostGtk {
+class CefOsrHostGtk : public CefRuntimeWindowHost {
 public:
     CefOsrHostGtk();
-    ~CefOsrHostGtk();
+    ~CefOsrHostGtk() override;
 
-    bool Initialize();
-    bool PresentFrame(const std::uint32_t* argb, int width, int height, int stride_bytes);
-    void SetWindowTitle(const std::string& title);
-    void SetProfileLabel(const std::string& profile_label);
-    void SetCurrentUrl(const std::string& url);
-    void SetLoadingState(bool is_loading, bool can_go_back, bool can_go_forward);
-    void SetLoadError(const std::string& error_text, const std::string& failed_url);
+    bool Initialize() override;
+    bool PresentFrame(const std::uint32_t* argb, int width, int height, int stride_bytes) override;
+    void SetWindowTitle(const std::string& title) override;
+    void SetProfileLabel(const std::string& profile_label) override;
+    void SetCurrentUrl(const std::string& url) override;
+    void SetLoadingState(bool is_loading, bool can_go_back, bool can_go_forward) override;
+    void SetLoadError(const std::string& error_text, const std::string& failed_url) override;
+    void SetTabStatus(std::size_t active_tab_index, std::size_t tab_count) override;
+    void SetTabStripItems(std::vector<TabUiItem> items) override;
+    void SetCallbacks(Callbacks callbacks) override {
+        tab_advance_handler_ = std::move(callbacks.tab_advance);
+        tab_activate_handler_ = std::move(callbacks.tab_activate);
+        tab_close_handler_ = std::move(callbacks.tab_close);
+        tab_close_active_handler_ = std::move(callbacks.tab_close_active);
+        tab_reopen_closed_handler_ = std::move(callbacks.tab_reopen_closed);
+        tab_new_handler_ = std::move(callbacks.tab_new);
+    }
+    void SetTabAdvanceHandler(std::function<bool(int)> tab_advance_handler);
+    void SetTabActivateHandler(std::function<bool(std::size_t)> tab_activate_handler);
+    void SetTabCloseHandler(std::function<bool(std::size_t)> tab_close_handler);
+    void SetTabCloseActiveHandler(std::function<bool()> tab_close_active_handler);
+    void SetTabReopenClosedHandler(std::function<bool()> tab_reopen_closed_handler);
+    void SetTabNewHandler(std::function<bool()> tab_new_handler);
 
-    CefWindowHandle parent_handle() const { return parent_handle_; }
+    CefWindowHandle parent_handle() const override { return parent_handle_; }
 
-    bool GetRootScreenRect(CefRect& rect) const;
-    void GetViewRect(CefRect& rect) const;
-    bool GetScreenPoint(int view_x, int view_y, int& screen_x, int& screen_y) const;
-    bool GetScreenInfo(CefScreenInfo& screen_info) const;
+    bool GetRootScreenRect(CefRect& rect) const override;
+    void GetViewRect(CefRect& rect) const override;
+    bool GetScreenPoint(int view_x, int view_y, int& screen_x, int& screen_y) const override;
+    bool GetScreenInfo(CefScreenInfo& screen_info) const override;
+    bool RunFileDialog(const FileDialogParams& params) override;
+    bool OpenUrlExternally(const std::string& url) override;
 
-    void NotifyBrowserCreated(CefRefPtr<CefBrowser> browser);
+    void NotifyBrowserCreated(CefRefPtr<CefBrowser> browser) override;
+    void NotifyBrowserClosing(CefRefPtr<CefBrowser> browser) override;
 
 private:
 #if defined(CEF_X11)
@@ -65,6 +89,8 @@ private:
     void QueueDeferredResizeSync();
     bool HandleChromeClick(int x, int y);
     bool HandleAddressContextMenuClick(int x, int y);
+    bool HandleTabStripClick(int x, int y);
+    bool ExecuteBrowserAction(browz::core::BrowserAction action);
     void FocusAddressField(bool select_all = true, std::size_t cursor = std::string::npos);
     void BlurAddressField();
     bool NavigateAddressBuffer();
@@ -110,5 +136,16 @@ private:
     int address_context_menu_x_ = 0;
     int address_context_menu_y_ = 0;
     bool deferred_resize_pending_ = false;
+    double pending_scroll_x_ = 0.0;
+    double pending_scroll_y_ = 0.0;
+    std::size_t active_tab_index_ = 0;
+    std::size_t tab_count_ = 1;
+    std::vector<TabUiItem> tab_strip_items_{};
+    std::function<bool(int)> tab_advance_handler_{};
+    std::function<bool(std::size_t)> tab_activate_handler_{};
+    std::function<bool(std::size_t)> tab_close_handler_{};
+    std::function<bool()> tab_close_active_handler_{};
+    std::function<bool()> tab_reopen_closed_handler_{};
+    std::function<bool()> tab_new_handler_{};
     CefRefPtr<CefBrowser> browser_{};
 };

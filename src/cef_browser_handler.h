@@ -1,12 +1,21 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <list>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "cef_backend.h"
-#include "cef_osr_host_gtk.h"
+#include "cef_runtime_host.h"
 #include "engine_cef/integration_bridge.h"
 #include "include/cef_client.h"
+
+enum class CefTabPageKind {
+    normal,
+    bridge_home,
+};
 
 class CefBrowserHandler : public CefClient,
                      public CefDialogHandler,
@@ -23,10 +32,35 @@ public:
                       bool verify_presentation_v2,
                       bridge::cef::CefBackend::Ptr backend,
                       std::shared_ptr<bridge::cef::IIntegrationBridge> bridge = nullptr,
-                      CefOsrHostGtk* osr_host = nullptr);
+                      CefRuntimeWindowHost* runtime_host = nullptr,
+                      int tab_id = 0,
+                      CefTabPageKind page_kind = CefTabPageKind::normal,
+                      std::string home_url = {},
+                      bool active_on_host = true);
     ~CefBrowserHandler() override;
 
     static CefBrowserHandler* GetInstance();
+
+    int tab_id() const { return tab_id_; }
+    CefTabPageKind page_kind() const { return page_kind_; }
+    bool active_on_host() const { return active_on_host_; }
+    const std::string& current_url() const { return current_url_; }
+    const std::string& current_title() const { return current_title_; }
+    bool is_loading() const { return is_loading_; }
+    bool can_go_back() const { return can_go_back_; }
+    bool can_go_forward() const { return can_go_forward_; }
+    const std::string& load_error_text() const { return load_error_text_; }
+    CefRefPtr<CefBrowser> primary_browser() const {
+        return browser_list_.empty() ? nullptr : browser_list_.front();
+    }
+    void SetActiveOnHost(bool active, bool hydrate_host = true);
+    void SetPopupRequestHandler(
+        std::function<bool(const std::string&, WindowOpenDisposition)> popup_request_handler) {
+        popup_request_handler_ = std::move(popup_request_handler);
+    }
+    void SetAllBrowsersClosedHandler(std::function<void(int)> all_browsers_closed_handler) {
+        all_browsers_closed_handler_ = std::move(all_browsers_closed_handler);
+    }
 
     CefRefPtr<CefDialogHandler> GetDialogHandler() override { return this; }
     CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
@@ -117,11 +151,27 @@ private:
     const bool use_osr_;
     const bool quit_after_first_frame_;
     const bool verify_presentation_v2_;
+    const int tab_id_;
+    CefTabPageKind page_kind_;
+    const std::string home_url_;
+    bool active_on_host_ = true;
     bool saw_first_frame_ = false;
     bool verified_presentation_v2_ = false;
     bridge::cef::CefBackend::Ptr backend_;
     std::shared_ptr<bridge::cef::IIntegrationBridge> bridge_{};
-    CefOsrHostGtk* osr_host_ = nullptr;
+    CefRuntimeWindowHost* runtime_host_ = nullptr;
+    std::string current_url_{};
+    std::string current_title_{};
+    std::string load_error_text_{};
+    bool is_loading_ = false;
+    bool can_go_back_ = false;
+    bool can_go_forward_ = false;
+    int last_frame_width_ = 0;
+    int last_frame_height_ = 0;
+    int last_frame_stride_bytes_ = 0;
+    std::vector<std::uint32_t> last_frame_argb_{};
+    std::function<bool(const std::string&, WindowOpenDisposition)> popup_request_handler_{};
+    std::function<void(int)> all_browsers_closed_handler_{};
     using BrowserList = std::list<CefRefPtr<CefBrowser>>;
     BrowserList browser_list_;
     bool is_closing_ = false;

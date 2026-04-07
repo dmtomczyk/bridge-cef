@@ -2,8 +2,17 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 #include "include/base/cef_logging.h"
+#include "include/cef_parser.h"
+
+#include "browser/browser_action.h"
+
+#if defined(__linux__)
+#include <spawn.h>
+extern char** environ;
+#endif
 
 #if defined(CEF_X11)
 #include <X11/Xutil.h>
@@ -14,7 +23,9 @@
 
 namespace {
 
-constexpr int kTopStripHeight = 48;
+constexpr int kTabStripHeight = 34;
+constexpr int kNavBarHeight = 48;
+constexpr int kTopStripHeight = kTabStripHeight + kNavBarHeight;
 constexpr double kChromeBgR = 0.08;
 constexpr double kChromeBgG = 0.10;
 constexpr double kChromeBgB = 0.14;
@@ -22,12 +33,12 @@ constexpr double kChromeBorder = 0.22;
 constexpr double kBackButtonX = 112.0;
 constexpr double kForwardButtonX = 148.0;
 constexpr double kReloadButtonX = 184.0;
-constexpr double kButtonY = 11.0;
+constexpr double kButtonY = static_cast<double>(kTabStripHeight + 11);
 constexpr double kButtonHeight = 26.0;
 constexpr double kSmallButtonWidth = 30.0;
 constexpr double kReloadButtonWidth = 42.0;
 constexpr double kAddressX = 238.0;
-constexpr double kAddressY = 10.0;
+constexpr double kAddressY = static_cast<double>(kTabStripHeight + 10);
 constexpr double kAddressHeight = 28.0;
 constexpr double kGoButtonWidth = 40.0;
 constexpr double kAddressTextInsetX = 12.0;
@@ -55,13 +66,16 @@ Rect AddressRect(int draw_width) {
 }
 Rect GoButtonRect(int draw_width) {
     const Rect address = AddressRect(draw_width);
-    return {address.x + address.w + 10.0, 11.0, kGoButtonWidth, 26.0};
+    return {address.x + address.w + 10.0, static_cast<double>(kTabStripHeight + 11), kGoButtonWidth, 26.0};
 }
 Rect AddressContextMenuRect(int x, int y) {
     return {static_cast<double>(x), static_cast<double>(y), kContextMenuWidth, kContextMenuItemHeight * 4.0};
 }
 Rect AddressContextMenuItemRect(int x, int y, int index) {
     return {static_cast<double>(x), static_cast<double>(y) + index * kContextMenuItemHeight, kContextMenuWidth, kContextMenuItemHeight};
+}
+Rect NewTabButtonRect(int draw_width) {
+    return {static_cast<double>(std::max(76, draw_width - 42)), 6.0, 28.0, 22.0};
 }
 
 double MeasureAddressTextWidth(std::string_view text) {
@@ -93,6 +107,56 @@ std::string TrimAscii(std::string text) {
     return text;
 }
 
+bool LooksLikeIpv4Address(const std::string& text) {
+    int dots = 0;
+    int digits_in_part = 0;
+    for (char c : text) {
+        if (std::isdigit(static_cast<unsigned char>(c))) {
+            ++digits_in_part;
+            if (digits_in_part > 3) {
+                return false;
+            }
+            continue;
+        }
+        if (c == '.') {
+            if (digits_in_part == 0) {
+                return false;
+            }
+            ++dots;
+            digits_in_part = 0;
+            continue;
+        }
+        return false;
+    }
+    return dots == 3 && digits_in_part > 0;
+}
+
+bool LooksLikeHostOrUrl(const std::string& text) {
+    if (text.empty()) {
+        return false;
+    }
+    if (text == "localhost" || text.rfind("localhost:", 0) == 0) {
+        return true;
+    }
+    if (LooksLikeIpv4Address(text)) {
+        return true;
+    }
+    if (text.find('/') != std::string::npos && text.find('.') != std::string::npos) {
+        return true;
+    }
+    if (text.find('.') != std::string::npos && text.find(' ') == std::string::npos) {
+        return true;
+    }
+    if (text.find(':') != std::string::npos && text.find(' ') == std::string::npos) {
+        return true;
+    }
+    return false;
+}
+
+std::string GoogleSearchUrl(const std::string& query) {
+    return std::string("https://www.google.com/search?q=") + CefURIEncode(query, false).ToString();
+}
+
 std::string NormalizeTypedUrl(const std::string& raw) {
     std::string text = TrimAscii(raw);
     if (text.empty()) {
@@ -105,12 +169,27 @@ std::string NormalizeTypedUrl(const std::string& raw) {
     if (text.find("://") != std::string::npos) {
         return text;
     }
-    return std::string("https://") + text;
+    if (text.find(' ') != std::string::npos) {
+        return GoogleSearchUrl(text);
+    }
+    if (LooksLikeHostOrUrl(text)) {
+        return std::string("https://") + text;
+    }
+    return GoogleSearchUrl(text);
 }
 
-std::string EffectiveWindowTitle(const std::string& page_title, const std::string& profile_label) {
+
+std::string EffectiveWindowTitle(const std::string& page_title,
+                                 const std::string& profile_label,
+                                 std::size_t active_tab_index,
+                                 std::size_t tab_count) {
     const std::string bridge_suffix = profile_label.empty() ? "BRIDGE" : "BRIDGE [" + profile_label + "]";
-    return page_title.empty() ? bridge_suffix + " — CEF Runtime Host" : page_title + " — " + bridge_suffix;
+    const std::string tab_suffix = tab_count > 1
+                                       ? " [Tab " + std::to_string(active_tab_index + 1) + "/" +
+                                             std::to_string(tab_count) + "]"
+                                       : std::string();
+    return page_title.empty() ? bridge_suffix + tab_suffix + " — CEF Runtime Host"
+                              : page_title + " — " + bridge_suffix + tab_suffix;
 }
 
 }  // namespace
@@ -259,9 +338,6 @@ bool CefOsrHostGtk::PresentFrame(const std::uint32_t* argb, int width, int heigh
     }
 
     gtk_widget_queue_draw(drawing_area_);
-    while (gtk_events_pending()) {
-        gtk_main_iteration();
-    }
     return true;
 #else
     (void)argb;
@@ -390,19 +466,103 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     cairo_set_source_rgb(cr, kChromeBgR, kChromeBgG, kChromeBgB);
     cairo_rectangle(cr, 0.0, 0.0, draw_width, kTopStripHeight);
     cairo_fill(cr);
+
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.07);
+    cairo_rectangle(cr, 0.0, static_cast<double>(kTabStripHeight - 1), draw_width, 1.0);
+    cairo_fill(cr);
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.12);
     cairo_rectangle(cr, 0.0, static_cast<double>(kTopStripHeight - 1), draw_width, 1.0);
     cairo_fill(cr);
 
     if (brand_overlay_pixbuf_ != nullptr) {
-        gdk_cairo_set_source_pixbuf(cr, brand_overlay_pixbuf_, 12.0, 15.0);
+        gdk_cairo_set_source_pixbuf(cr, brand_overlay_pixbuf_, 12.0, 8.0);
         cairo_paint(cr);
     }
     cairo_set_source_rgb(cr, 0.95, 0.98, 1.0);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-    cairo_set_font_size(cr, 14.0);
-    cairo_move_to(cr, 38.0, 31.0);
+    cairo_set_font_size(cr, 13.0);
+    cairo_move_to(cr, 38.0, 22.0);
     cairo_show_text(cr, "BRIDGE");
+
+    const Rect new_tab_rect = NewTabButtonRect(draw_width);
+    cairo_set_source_rgba(cr, 0.19, 0.24, 0.34, 0.98);
+    cairo_rectangle(cr, new_tab_rect.x, new_tab_rect.y, new_tab_rect.w, new_tab_rect.h);
+    cairo_fill(cr);
+    cairo_set_source_rgba(cr, 0.43, 0.67, 1.0, 0.42);
+    cairo_rectangle(cr, new_tab_rect.x, new_tab_rect.y, new_tab_rect.w, new_tab_rect.h);
+    cairo_stroke(cr);
+    cairo_set_source_rgba(cr, 0.98, 0.99, 1.0, 1.0);
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 14.0);
+    cairo_move_to(cr, new_tab_rect.x + 9.0, new_tab_rect.y + 16.0);
+    cairo_show_text(cr, "+");
+
+    const double tab_strip_left = 92.0;
+    const double tab_strip_right = new_tab_rect.x - 8.0;
+    const double tab_strip_width = std::max(120.0, tab_strip_right - tab_strip_left);
+    const std::size_t visible_tab_count = std::max<std::size_t>(1, tab_strip_items_.empty() ? tab_count_ : tab_strip_items_.size());
+    const double raw_tab_width = tab_strip_width / static_cast<double>(visible_tab_count);
+    const double tab_width = std::clamp(raw_tab_width, 120.0, 220.0);
+    for (std::size_t i = 0; i < tab_strip_items_.size(); ++i) {
+        const double tab_x = tab_strip_left + static_cast<double>(i) * tab_width;
+        if (tab_x >= tab_strip_right) {
+            break;
+        }
+        const double clipped_width = std::min(tab_width - 6.0, tab_strip_right - tab_x);
+        if (clipped_width <= 20.0) {
+            break;
+        }
+        const auto& item = tab_strip_items_[i];
+        cairo_set_source_rgba(cr,
+                              item.active ? 0.21 : 0.10,
+                              item.active ? 0.27 : 0.13,
+                              item.active ? 0.37 : 0.18,
+                              item.active ? 1.0 : 0.88);
+        cairo_rectangle(cr, tab_x, 6.0, clipped_width, 24.0);
+        cairo_fill(cr);
+        cairo_set_source_rgba(cr,
+                              item.active ? 0.43 : 1.0,
+                              item.active ? 0.67 : 1.0,
+                              item.active ? 1.0 : 1.0,
+                              item.active ? 0.34 : 0.08);
+        cairo_rectangle(cr, tab_x, 6.0, clipped_width, 24.0);
+        cairo_stroke(cr);
+
+        if (item.loading) {
+            cairo_set_source_rgb(cr, 0.90, 0.74, 0.25);
+        } else {
+            cairo_set_source_rgb(cr, item.active ? 0.46 : 0.36, item.active ? 0.72 : 0.78, item.active ? 1.0 : 0.48);
+        }
+        cairo_arc(cr, tab_x + 10.0, 18.0, 3.0, 0.0, 6.28318530718);
+        cairo_fill(cr);
+
+        const std::string tab_label = item.title.empty()
+                                          ? (item.url.empty() ? std::string("New Tab") : item.url)
+                                          : item.title;
+        cairo_set_source_rgba(cr, 0.95, 0.98, 1.0, item.active ? 0.98 : 0.84);
+        cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 11.0);
+        cairo_save(cr);
+        cairo_rectangle(cr, tab_x + 18.0, 8.0, std::max(20.0, clipped_width - 44.0), 18.0);
+        cairo_clip(cr);
+        cairo_move_to(cr, tab_x + 18.0, 21.0);
+        cairo_show_text(cr, EllipsizeMiddle(tab_label, 22).c_str());
+        cairo_restore(cr);
+
+        if (item.can_close) {
+            cairo_set_source_rgba(cr, item.active ? 0.26 : 0.18, item.active ? 0.33 : 0.24, item.active ? 0.45 : 0.30, 0.98);
+            cairo_rectangle(cr, tab_x + clipped_width - 20.0, 9.0, 13.0, 13.0);
+            cairo_fill(cr);
+            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, item.active ? 0.22 : 0.10);
+            cairo_rectangle(cr, tab_x + clipped_width - 20.0, 9.0, 13.0, 13.0);
+            cairo_stroke(cr);
+            cairo_set_source_rgba(cr, 0.95, 0.98, 1.0, item.active ? 0.92 : 0.70);
+            cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+            cairo_set_font_size(cr, 10.0);
+            cairo_move_to(cr, tab_x + clipped_width - 16.0, 19.0);
+            cairo_show_text(cr, "x");
+        }
+    }
 
     auto draw_button = [&](const Rect& rect, const char* label, bool enabled) {
         cairo_set_source_rgba(cr, enabled ? 0.16 : 0.11, enabled ? 0.20 : 0.14, enabled ? 0.27 : 0.18, 0.98);
@@ -523,32 +683,32 @@ int CefOsrHostGtk::Draw(cairo_t* cr) {
     if (!profile_label_.empty()) {
         const std::string profile_text = EllipsizeMiddle(profile_label_, 18);
         cairo_set_source_rgba(cr, 0.16, 0.20, 0.27, 0.98);
-        cairo_rectangle(cr, draw_width - 236.0, 11.0, 108.0, 26.0);
+        cairo_rectangle(cr, draw_width - 236.0, kTabStripHeight + 11.0, 108.0, 26.0);
         cairo_fill(cr);
         cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, kChromeBorder);
-        cairo_rectangle(cr, draw_width - 236.0, 11.0, 108.0, 26.0);
+        cairo_rectangle(cr, draw_width - 236.0, kTabStripHeight + 11.0, 108.0, 26.0);
         cairo_stroke(cr);
         cairo_set_source_rgba(cr, 0.88, 0.92, 0.98, 0.92);
         cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
         cairo_set_font_size(cr, 11.0);
-        cairo_move_to(cr, draw_width - 226.0, 28.0);
+        cairo_move_to(cr, draw_width - 226.0, kTabStripHeight + 28.0);
         cairo_show_text(cr, profile_text.c_str());
         status_x = static_cast<double>(draw_width) - 114.0;
     }
 
     cairo_set_source_rgb(cr, status_r, status_g, status_b);
-    cairo_arc(cr, status_x, 24.0, 4.0, 0.0, 6.28318530718);
+    cairo_arc(cr, status_x, kTabStripHeight + 24.0, 4.0, 0.0, 6.28318530718);
     cairo_fill(cr);
     cairo_set_source_rgba(cr, 0.88, 0.92, 0.98, 0.86);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 11.0);
-    cairo_move_to(cr, status_x + 10.0, 28.0);
+    cairo_move_to(cr, status_x + 10.0, kTabStripHeight + 28.0);
     cairo_show_text(cr, status_label);
 
     cairo_set_source_rgba(cr, 0.80, 0.85, 0.92, 0.78);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 11.0);
-    cairo_move_to(cr, 14.0, 44.0);
+    cairo_move_to(cr, 14.0, kTopStripHeight - 8.0);
     cairo_show_text(cr, "Official runtime-host browser");
     cairo_restore(cr);
     return 0;
@@ -804,6 +964,46 @@ bool CefOsrHostGtk::HandleAddressContextMenuClick(int x, int y) {
     return false;
 }
 
+bool CefOsrHostGtk::HandleTabStripClick(int x, int y) {
+    const int draw_width = drawing_area_ != nullptr ? std::max(1, gtk_widget_get_allocated_width(drawing_area_)) : width_;
+    if (y < 0 || y >= kTabStripHeight) {
+        return false;
+    }
+
+    const Rect new_tab_rect = NewTabButtonRect(draw_width);
+    if (Contains(new_tab_rect, x, y)) {
+        BlurAddressField();
+        return tab_new_handler_ ? tab_new_handler_() : false;
+    }
+
+    const double tab_strip_left = 92.0;
+    const double tab_strip_right = new_tab_rect.x - 8.0;
+    const double tab_strip_width = std::max(120.0, tab_strip_right - tab_strip_left);
+    const std::size_t visible_tab_count = std::max<std::size_t>(1, tab_strip_items_.empty() ? tab_count_ : tab_strip_items_.size());
+    const double raw_tab_width = tab_strip_width / static_cast<double>(visible_tab_count);
+    const double tab_width = std::clamp(raw_tab_width, 120.0, 220.0);
+
+    for (std::size_t i = 0; i < tab_strip_items_.size(); ++i) {
+        const double tab_x = tab_strip_left + static_cast<double>(i) * tab_width;
+        if (tab_x >= tab_strip_right) {
+            break;
+        }
+        const double clipped_width = std::min(tab_width - 6.0, tab_strip_right - tab_x);
+        const Rect tab_rect{tab_x, 6.0, clipped_width, 24.0};
+        if (!Contains(tab_rect, x, y)) {
+            continue;
+        }
+        const Rect close_rect{tab_x + clipped_width - 22.0, 5.0, 22.0, 26.0};
+        if (tab_strip_items_[i].can_close && Contains(close_rect, x, y)) {
+            BlurAddressField();
+            return tab_close_handler_ ? tab_close_handler_(i) : false;
+        }
+        BlurAddressField();
+        return tab_activate_handler_ ? tab_activate_handler_(i) : false;
+    }
+    return true;
+}
+
 bool CefOsrHostGtk::HandleChromeClick(int x, int y) {
     const int draw_width = drawing_area_ != nullptr ? std::max(1, gtk_widget_get_allocated_width(drawing_area_)) : width_;
     if (Contains(BackButtonRect(), x, y)) {
@@ -853,12 +1053,14 @@ uint32_t CefOsrHostGtk::CurrentModifiers() const {
         return EVENTFLAG_NONE;
     }
     GdkModifierType state = static_cast<GdkModifierType>(0);
-    if (gtk_widget_get_window(drawing_area_) != nullptr) {
-        gdk_window_get_device_position(gtk_widget_get_window(drawing_area_),
-                                       gdk_device_manager_get_client_pointer(gdk_display_get_device_manager(gdk_display_get_default())),
-                                       nullptr,
-                                       nullptr,
-                                       &state);
+    if (GdkWindow* window = gtk_widget_get_window(drawing_area_); window != nullptr) {
+        if (GdkDisplay* display = gdk_window_get_display(window); display != nullptr) {
+            if (GdkSeat* seat = gdk_display_get_default_seat(display); seat != nullptr) {
+                if (GdkDevice* pointer = gdk_seat_get_pointer(seat); pointer != nullptr) {
+                    gdk_window_get_device_position(window, pointer, nullptr, nullptr, &state);
+                }
+            }
+        }
     }
 
     uint32_t modifiers = EVENTFLAG_NONE;
@@ -906,6 +1108,18 @@ int CefOsrHostGtk::HandleButton(GdkEventButton* event, bool mouse_up) {
     }
 
     if (y < kTopStripHeight) {
+        if (y < kTabStripHeight) {
+            if (!mouse_up && (event->type == GDK_2BUTTON_PRESS || event->type == GDK_3BUTTON_PRESS)) {
+                return 1;
+            }
+            if (mouse_up && event->button == 1) {
+                return HandleTabStripClick(x, y) ? 1 : 1;
+            }
+            if (mouse_up && event->button == 2) {
+                return 1;
+            }
+            return 1;
+        }
         if (event->button == 3) {
             if (mouse_up && Contains(AddressRect(draw_width), x, y)) {
                 if (!address_focused_) {
@@ -1012,10 +1226,34 @@ int CefOsrHostGtk::HandleScroll(GdkEventScroll* event) {
         case GDK_SCROLL_RIGHT:
             delta_x = -120;
             break;
+#if defined(GDK_SCROLL_SMOOTH)
+        case GDK_SCROLL_SMOOTH: {
+            double smooth_x = 0.0;
+            double smooth_y = 0.0;
+            if (gdk_event_get_scroll_deltas(reinterpret_cast<GdkEvent*>(event), &smooth_x, &smooth_y)) {
+                constexpr double kSmoothScrollScale = 80.0;
+                constexpr double kSmoothEmitThreshold = 24.0;
+                pending_scroll_x_ += (-smooth_x * kSmoothScrollScale);
+                pending_scroll_y_ += (-smooth_y * kSmoothScrollScale);
+
+                if (std::fabs(pending_scroll_x_) >= kSmoothEmitThreshold) {
+                    delta_x = static_cast<int>(std::lround(pending_scroll_x_));
+                    pending_scroll_x_ -= static_cast<double>(delta_x);
+                }
+                if (std::fabs(pending_scroll_y_) >= kSmoothEmitThreshold) {
+                    delta_y = static_cast<int>(std::lround(pending_scroll_y_));
+                    pending_scroll_y_ -= static_cast<double>(delta_y);
+                }
+            }
+            break;
+        }
+#endif
         default:
             break;
     }
-    browser_->GetHost()->SendMouseWheelEvent(mouse_event, delta_x, delta_y);
+    if (delta_x != 0 || delta_y != 0) {
+        browser_->GetHost()->SendMouseWheelEvent(mouse_event, delta_x, delta_y);
+    }
     return 1;
 }
 
@@ -1025,12 +1263,67 @@ int CefOsrHostGtk::HandleKey(GdkEventKey* event, bool key_up) {
     }
 
     const bool control_down = (event->state & GDK_CONTROL_MASK) != 0;
+    const bool shift_down = (event->state & GDK_SHIFT_MASK) != 0;
     const bool alt_down = (event->state & GDK_MOD1_MASK) != 0;
     const gunichar unicode = gdk_keyval_to_unicode(event->keyval);
 
+    if (!key_up && event->keyval == GDK_KEY_F5) {
+        return ExecuteBrowserAction(browz::core::BrowserAction::reload) ? 1 : 0;
+    }
+    if (!key_up && control_down && !alt_down && event->keyval == GDK_KEY_Tab) {
+        return ExecuteBrowserAction(shift_down ? browz::core::BrowserAction::previous_tab
+                                               : browz::core::BrowserAction::next_tab)
+                   ? 1
+                   : 0;
+    }
+    if (!key_up && alt_down) {
+        switch (event->keyval) {
+            case GDK_KEY_1:
+            case GDK_KEY_KP_1:
+                return (tab_activate_handler_ && tab_activate_handler_(0)) ? 1 : 0;
+            case GDK_KEY_2:
+            case GDK_KEY_KP_2:
+                return (tab_activate_handler_ && tab_activate_handler_(1)) ? 1 : 0;
+            case GDK_KEY_3:
+            case GDK_KEY_KP_3:
+                return (tab_activate_handler_ && tab_activate_handler_(2)) ? 1 : 0;
+            case GDK_KEY_4:
+            case GDK_KEY_KP_4:
+                return (tab_activate_handler_ && tab_activate_handler_(3)) ? 1 : 0;
+            case GDK_KEY_5:
+            case GDK_KEY_KP_5:
+                return (tab_activate_handler_ && tab_activate_handler_(4)) ? 1 : 0;
+            case GDK_KEY_6:
+            case GDK_KEY_KP_6:
+                return (tab_activate_handler_ && tab_activate_handler_(5)) ? 1 : 0;
+            case GDK_KEY_7:
+            case GDK_KEY_KP_7:
+                return (tab_activate_handler_ && tab_activate_handler_(6)) ? 1 : 0;
+            case GDK_KEY_8:
+            case GDK_KEY_KP_8:
+                return (tab_activate_handler_ && tab_activate_handler_(7)) ? 1 : 0;
+            case GDK_KEY_9:
+            case GDK_KEY_KP_9:
+                return (tab_activate_handler_ && tab_activate_handler_(8)) ? 1 : 0;
+            default:
+                break;
+        }
+    }
+
+    if (!key_up && control_down && shift_down && !alt_down && (event->keyval == GDK_KEY_t || event->keyval == GDK_KEY_T)) {
+        return ExecuteBrowserAction(browz::core::BrowserAction::reopen_closed_tab) ? 1 : 0;
+    }
+    if (!key_up && control_down && !shift_down && !alt_down && (event->keyval == GDK_KEY_t || event->keyval == GDK_KEY_T)) {
+        return ExecuteBrowserAction(browz::core::BrowserAction::new_tab) ? 1 : 0;
+    }
+    if (!key_up && control_down && !alt_down && (event->keyval == GDK_KEY_w || event->keyval == GDK_KEY_W)) {
+        return ExecuteBrowserAction(browz::core::BrowserAction::close_tab) ? 1 : 0;
+    }
+    if (!key_up && control_down && !alt_down && (event->keyval == GDK_KEY_r || event->keyval == GDK_KEY_R)) {
+        return ExecuteBrowserAction(browz::core::BrowserAction::reload) ? 1 : 0;
+    }
     if (!key_up && control_down && !alt_down && (event->keyval == GDK_KEY_l || event->keyval == GDK_KEY_L)) {
-        FocusAddressField();
-        return 1;
+        return ExecuteBrowserAction(browz::core::BrowserAction::focus_address_bar) ? 1 : 0;
     }
     if (!key_up && event->keyval == GDK_KEY_Escape && address_context_menu_open_) {
         address_context_menu_open_ = false;
@@ -1263,16 +1556,225 @@ void CefOsrHostGtk::NotifyBrowserCreated(CefRefPtr<CefBrowser> browser) {
     QueueDeferredResizeSync();
 }
 
+void CefOsrHostGtk::NotifyBrowserClosing(CefRefPtr<CefBrowser> browser) {
+    if (!browser_) {
+        return;
+    }
+    if (!browser || browser_->IsSame(browser)) {
+        browser_ = nullptr;
+    }
+}
+
 void CefOsrHostGtk::SetProfileLabel(const std::string& profile_label) {
     profile_label_ = profile_label;
 #if defined(CEF_X11)
     if (window_ != nullptr) {
-        const std::string effective = EffectiveWindowTitle(window_title_, profile_label_);
+        const std::string effective =
+            EffectiveWindowTitle(window_title_, profile_label_, active_tab_index_, tab_count_);
         gtk_window_set_title(GTK_WINDOW(window_), effective.c_str());
     }
     if (drawing_area_ != nullptr) {
         gtk_widget_queue_draw(drawing_area_);
     }
+#endif
+}
+
+bool CefOsrHostGtk::ExecuteBrowserAction(browz::core::BrowserAction action) {
+    switch (action) {
+        case browz::core::BrowserAction::reload:
+            BlurAddressField();
+            if (browser_ != nullptr) {
+                browser_->Reload();
+                return true;
+            }
+            return false;
+        case browz::core::BrowserAction::new_tab:
+            BlurAddressField();
+            return tab_new_handler_ && tab_new_handler_();
+        case browz::core::BrowserAction::close_tab:
+            BlurAddressField();
+            return tab_close_active_handler_ && tab_close_active_handler_();
+        case browz::core::BrowserAction::reopen_closed_tab:
+            BlurAddressField();
+            return tab_reopen_closed_handler_ && tab_reopen_closed_handler_();
+        case browz::core::BrowserAction::focus_address_bar:
+            FocusAddressField();
+            return true;
+        case browz::core::BrowserAction::next_tab:
+            return tab_advance_handler_ && tab_advance_handler_(1);
+        case browz::core::BrowserAction::previous_tab:
+            return tab_advance_handler_ && tab_advance_handler_(-1);
+        default:
+            return false;
+    }
+}
+
+void CefOsrHostGtk::SetTabStatus(std::size_t active_tab_index, std::size_t tab_count) {
+    active_tab_index_ = active_tab_index;
+    tab_count_ = std::max<std::size_t>(1, tab_count);
+#if defined(CEF_X11)
+    if (window_ != nullptr) {
+        const std::string effective =
+            EffectiveWindowTitle(window_title_, profile_label_, active_tab_index_, tab_count_);
+        gtk_window_set_title(GTK_WINDOW(window_), effective.c_str());
+    }
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
+void CefOsrHostGtk::SetTabStripItems(std::vector<TabUiItem> items) {
+    tab_strip_items_ = std::move(items);
+#if defined(CEF_X11)
+    if (drawing_area_ != nullptr) {
+        gtk_widget_queue_draw(drawing_area_);
+    }
+#endif
+}
+
+void CefOsrHostGtk::SetTabAdvanceHandler(std::function<bool(int)> tab_advance_handler) {
+    tab_advance_handler_ = std::move(tab_advance_handler);
+}
+
+void CefOsrHostGtk::SetTabActivateHandler(std::function<bool(std::size_t)> tab_activate_handler) {
+    tab_activate_handler_ = std::move(tab_activate_handler);
+}
+
+void CefOsrHostGtk::SetTabCloseHandler(std::function<bool(std::size_t)> tab_close_handler) {
+    tab_close_handler_ = std::move(tab_close_handler);
+}
+
+void CefOsrHostGtk::SetTabCloseActiveHandler(std::function<bool()> tab_close_active_handler) {
+    tab_close_active_handler_ = std::move(tab_close_active_handler);
+}
+
+void CefOsrHostGtk::SetTabReopenClosedHandler(std::function<bool()> tab_reopen_closed_handler) {
+    tab_reopen_closed_handler_ = std::move(tab_reopen_closed_handler);
+}
+
+void CefOsrHostGtk::SetTabNewHandler(std::function<bool()> tab_new_handler) {
+    tab_new_handler_ = std::move(tab_new_handler);
+}
+
+bool CefOsrHostGtk::RunFileDialog(const FileDialogParams& params) {
+#if !defined(CEF_X11)
+    (void)params;
+    return false;
+#else
+    if (!params.callback) {
+        return false;
+    }
+
+    GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
+    bool select_multiple = false;
+    switch (params.mode) {
+        case FILE_DIALOG_OPEN:
+            action = GTK_FILE_CHOOSER_ACTION_OPEN;
+            break;
+        case FILE_DIALOG_OPEN_MULTIPLE:
+            action = GTK_FILE_CHOOSER_ACTION_OPEN;
+            select_multiple = true;
+            break;
+        case FILE_DIALOG_OPEN_FOLDER:
+            action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
+            break;
+        case FILE_DIALOG_SAVE:
+            action = GTK_FILE_CHOOSER_ACTION_SAVE;
+            break;
+        default:
+            return false;
+    }
+
+    GtkFileChooserNative* dialog = gtk_file_chooser_native_new(
+        params.title.empty() ? nullptr : params.title.c_str(), nullptr, action,
+        action == GTK_FILE_CHOOSER_ACTION_SAVE ? "Save" : "Open", "Cancel");
+    if (dialog == nullptr) {
+        return false;
+    }
+
+    GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
+    gtk_file_chooser_set_select_multiple(chooser, select_multiple ? TRUE : FALSE);
+    gtk_file_chooser_set_local_only(chooser, TRUE);
+    if (action == GTK_FILE_CHOOSER_ACTION_SAVE) {
+        gtk_file_chooser_set_do_overwrite_confirmation(chooser, TRUE);
+    }
+
+    if (!params.default_file_path.empty()) {
+        if (action == GTK_FILE_CHOOSER_ACTION_SAVE) {
+            gtk_file_chooser_set_filename(chooser, params.default_file_path.c_str());
+        } else {
+            gtk_file_chooser_set_current_folder(chooser, params.default_file_path.c_str());
+            gtk_file_chooser_select_filename(chooser, params.default_file_path.c_str());
+        }
+    }
+
+    for (std::size_t i = 0; i < params.accept_extensions.size(); ++i) {
+        const std::string& extensions = params.accept_extensions[i];
+        const std::string description = i < params.accept_descriptions.size() ? params.accept_descriptions[i] : std::string();
+        if (extensions.empty()) {
+            continue;
+        }
+        GtkFileFilter* filter = gtk_file_filter_new();
+        if (!description.empty()) {
+            gtk_file_filter_set_name(filter, description.c_str());
+        }
+        std::size_t start = 0;
+        while (start < extensions.size()) {
+            const std::size_t end = extensions.find(';', start);
+            const std::string ext = extensions.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            if (!ext.empty()) {
+                const std::string pattern = ext[0] == '.' ? std::string("*") + ext : std::string("*.") + ext;
+                gtk_file_filter_add_pattern(filter, pattern.c_str());
+            }
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+        gtk_file_chooser_add_filter(chooser, filter);
+    }
+
+    std::vector<CefString> selected_paths;
+    const int response = gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog));
+    if (response == GTK_RESPONSE_ACCEPT) {
+        if (select_multiple) {
+            GSList* files = gtk_file_chooser_get_filenames(chooser);
+            for (GSList* node = files; node != nullptr; node = node->next) {
+                if (node->data != nullptr) {
+                    selected_paths.emplace_back(static_cast<const char*>(node->data));
+                    g_free(node->data);
+                }
+            }
+            g_slist_free(files);
+        } else if (char* filename = gtk_file_chooser_get_filename(chooser); filename != nullptr) {
+            selected_paths.emplace_back(filename);
+            g_free(filename);
+        }
+        params.callback->Continue(selected_paths);
+    } else {
+        params.callback->Cancel();
+    }
+
+    gtk_native_dialog_destroy(GTK_NATIVE_DIALOG(dialog));
+    g_object_unref(dialog);
+    return true;
+#endif
+}
+
+bool CefOsrHostGtk::OpenUrlExternally(const std::string& url) {
+#if defined(__linux__)
+    if (url.empty()) {
+        return false;
+    }
+    pid_t pid = 0;
+    char* argv[] = {const_cast<char*>("xdg-open"), const_cast<char*>(url.c_str()), nullptr};
+    extern char** environ;
+    const int rc = posix_spawnp(&pid, "xdg-open", nullptr, nullptr, argv, environ);
+    return rc == 0;
+#else
+    (void)url;
+    return false;
 #endif
 }
 
@@ -1321,7 +1823,7 @@ void CefOsrHostGtk::SetWindowTitle(const std::string& title) {
     if (window_ == nullptr) {
         return;
     }
-    const std::string effective = EffectiveWindowTitle(title, profile_label_);
+    const std::string effective = EffectiveWindowTitle(title, profile_label_, active_tab_index_, tab_count_);
     gtk_window_set_title(GTK_WINDOW(window_), effective.c_str());
     if (drawing_area_ != nullptr) {
         gtk_widget_queue_draw(drawing_area_);

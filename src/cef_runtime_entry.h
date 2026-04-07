@@ -6,12 +6,12 @@
 #include <utility>
 
 #include "cef_app_host.h"
-#include "cef_linux_main_runner.h"
+#include "cef_runtime_runner.h"
 #include "engine_cef/integration_bridge.h"
 
 struct CefRuntimeEntryConfig {
     CefLaunchConfig launch;
-    CefLinuxMainRunnerOptions runner;
+    CefRuntimeRunnerOptions runner;
 };
 
 enum class CefRuntimePhase {
